@@ -1,0 +1,30 @@
+# Unreal Engine build products
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+
+# IDE and local workspace state
+.vs/
+.idea/
+.vscode/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.code-workspace
+
+# Documentation environments and output
+site/
+.venv/
+venv/
+__pycache__/
+.cache/
+*.py[cod]
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
