@@ -22,6 +22,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FDiurnalTimeEvent, TimeEvent,
 	FDiurnalDateTime, OccurrenceTime);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+	FOnDayNightCycleTimeEventOccurrence,
+	FDiurnalEventOccurrenceHandle, Occurrence,
+	FDiurnalTimeEvent, TimeEvent,
+	FDiurnalDateTime, OccurrenceTime);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOnDayNightCycleTimeEventAdded,
 	FDiurnalTimeEvent, TimeEvent);
@@ -57,14 +63,31 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FDiurnalTimeRange, TimeRange,
 	FDiurnalDateTime, CurrentDateTime);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+	FOnDayNightCycleTimeRangeEntryEntered,
+	FDiurnalScheduleEntryReference, Entry,
+	FDiurnalTimeRange, TimeRange,
+	FDiurnalDateTime, CurrentDateTime);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+	FOnDayNightCycleTimeRangeEntryExited,
+	FDiurnalScheduleEntryReference, Entry,
+	FDiurnalTimeRange, TimeRange,
+	FDiurnalDateTime, CurrentDateTime);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FOnDayNightCycleTimeGateActivated,
 	FDiurnalTimeEvent, TimeEvent,
 	FDiurnalDateTime, ActivationTime);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
-	FOnDayNightCycleTimeGateReleased,
-	FGameplayTag, GateTag,
+	FOnDayNightCycleTimeGateOccurrenceActivated,
+	FDiurnalEventOccurrenceHandle, Occurrence,
+	FDiurnalTimeEvent, TimeEvent);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOnDayNightCycleTimeGateOccurrenceReleased,
+	FDiurnalEventOccurrenceHandle, Occurrence,
 	FDiurnalDateTime, ReleaseTime);
 
 #pragma endregion
@@ -79,7 +102,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 UCLASS(
 	BlueprintType,
 	DisplayName = "Day Night Cycle Notifications")
-class DIURNALCYCLERUNTIME_API
+class DIURNALCYCLEBLUEPRINT_API
 UDiurnalCycleBlueprintSubsystem final
 	: public UGameInstanceSubsystem
 {
@@ -125,6 +148,10 @@ public:
 		Category = "Day Night Cycle|Notifications|Events")
 	FOnDayNightCycleTimeEventTriggered OnTimeEventTriggered;
 
+	/** Identity-rich event occurrence used for exact gameplay bookkeeping. */
+	UPROPERTY(BlueprintAssignable, Category = "Day Night Cycle|Notifications|Events")
+	FOnDayNightCycleTimeEventOccurrence OnTimeEventOccurrence;
+
 	/** Emitted after an event is added to the runtime schedule. */
 	UPROPERTY(
 		BlueprintAssignable,
@@ -165,6 +192,12 @@ public:
 		Category = "Day Night Cycle|Notifications|Time Ranges")
 	FOnDayNightCycleTimeRangeExited OnTimeRangeExited;
 
+	UPROPERTY(BlueprintAssignable, Category = "Day Night Cycle|Notifications|Time Ranges")
+	FOnDayNightCycleTimeRangeEntryEntered OnTimeRangeEntryEntered;
+
+	UPROPERTY(BlueprintAssignable, Category = "Day Night Cycle|Notifications|Time Ranges")
+	FOnDayNightCycleTimeRangeEntryExited OnTimeRangeEntryExited;
+
 #pragma endregion
 
 #pragma region TimeGateNotifications
@@ -175,11 +208,12 @@ public:
 		Category = "Day Night Cycle|Notifications|Time Gates")
 	FOnDayNightCycleTimeGateActivated OnTimeGateActivated;
 
-	/** Emitted when one active time gate is released. */
-	UPROPERTY(
-		BlueprintAssignable,
-		Category = "Day Night Cycle|Notifications|Time Gates")
-	FOnDayNightCycleTimeGateReleased OnTimeGateReleased;
+	/** Exact blocking occurrence; use this handle for acknowledgement. */
+	UPROPERTY(BlueprintAssignable, Category = "Day Night Cycle|Notifications|Time Gates")
+	FOnDayNightCycleTimeGateOccurrenceActivated OnTimeGateOccurrenceActivated;
+
+	UPROPERTY(BlueprintAssignable, Category = "Day Night Cycle|Notifications|Time Gates")
+	FOnDayNightCycleTimeGateOccurrenceReleased OnTimeGateOccurrenceReleased;
 
 #pragma endregion
 
@@ -190,6 +224,11 @@ private:
 		const FDiurnalTimeChange& Change);
 
 	void HandleTimeEventTriggered(
+		const FDiurnalTimeEvent& TimeEvent,
+		const FDiurnalDateTime& OccurrenceTime);
+
+	void HandleTimeEventOccurrence(
+		const FDiurnalEventOccurrenceHandle& Occurrence,
 		const FDiurnalTimeEvent& TimeEvent,
 		const FDiurnalDateTime& OccurrenceTime);
 
@@ -220,12 +259,26 @@ private:
 		const FDiurnalTimeRange& TimeRange,
 		const FDiurnalDateTime& CurrentDateTime);
 
+	void HandleTimeRangeEntryEntered(
+		const FDiurnalScheduleEntryReference& Entry,
+		const FDiurnalTimeRange& TimeRange,
+		const FDiurnalDateTime& CurrentDateTime);
+
+	void HandleTimeRangeEntryExited(
+		const FDiurnalScheduleEntryReference& Entry,
+		const FDiurnalTimeRange& TimeRange,
+		const FDiurnalDateTime& CurrentDateTime);
+
 	void HandleTimeGateActivated(
 		const FDiurnalTimeEvent& TimeEvent,
 		const FDiurnalDateTime& ActivationTime);
 
-	void HandleTimeGateReleased(
-		FGameplayTag GateTag,
+	void HandleTimeGateOccurrenceActivated(
+		const FDiurnalEventOccurrenceHandle& Occurrence,
+		const FDiurnalTimeEvent& TimeEvent);
+
+	void HandleTimeGateOccurrenceReleased(
+		const FDiurnalEventOccurrenceHandle& Occurrence,
 		const FDiurnalDateTime& ReleaseTime);
 
 #pragma endregion

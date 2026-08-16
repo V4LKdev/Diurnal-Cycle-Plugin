@@ -1,5 +1,7 @@
 ﻿#include "SDiurnalCycleToolbarWidget.h"
 
+#include "DiurnalCycleEditor.h"
+#include "DiurnalCycleEditorStyle.h"
 #include "DiurnalCycleSettings.h"
 #include "Subsystem/DiurnalCycleWorldSubsystem.h"
 #include "Subsystem/DiurnalCycleSubsystem.h"
@@ -98,12 +100,8 @@ void SDiurnalCycleToolbarWidget::Construct(
 					4.0f,
 					0.0f))
 			[
-				SNew(STextBlock)
-				.Text_Lambda(
-					[this]()
-					{
-						return DisplayText;
-					})
+				SAssignNew(ClockTextBlock, STextBlock)
+				.Text(DisplayText)
 				.ToolTipText_Lambda(
 					[this]()
 					{
@@ -156,12 +154,7 @@ void SDiurnalCycleToolbarWidget::Construct(
 						.HeightOverride(16.0f)
 					[
 						SNew(SImage)
-							.Image(
-								FSlateIconFinder::
-									FindIconBrushForClass(
-										UWorld::StaticClass(),
-										FName(
-											TEXT("ClassIcon.World"))))
+							.Image(this, &SDiurnalCycleToolbarWidget::GetWorldPolicyIcon)
 							.ColorAndOpacity(
 								FSlateColor::UseForeground())
 					]
@@ -188,12 +181,12 @@ void SDiurnalCycleToolbarWidget::Construct(
 				.ToolTipText(
 					NSLOCTEXT(
 						"DiurnalCycleToolbar",
-						"OpenSettingsTooltip",
-						"Open Day Night Cycle project settings"))
+						"OpenScheduleBrowserTooltip",
+						"Open the Day/Night Cycle Schedule Browser"))
 				.OnClicked(
 					this,
 					&SDiurnalCycleToolbarWidget::
-						OpenSettings)
+						OpenScheduleBrowser)
 			[
 				SNew(SBox)
 					.WidthOverride(
@@ -202,11 +195,39 @@ void SDiurnalCycleToolbarWidget::Construct(
 						16.0f)
 				[
 					SNew(SImage)
-						.Image(
-							FAppStyle::Get().GetBrush(
-								TEXT("Icons.Settings")))
+						.Image(FDiurnalCycleEditorStyle::Get().GetBrush(TEXT("DiurnalCycle.Toolbar.Schedule")))
 						.ColorAndOpacity(
 							FSlateColor::UseForeground())
+				]
+			]
+		]
+
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(FMargin(0.0f, 0.0f, 2.0f, 0.0f))
+		[
+			SNew(SButton)
+			.ButtonStyle(
+				&FAppStyle::Get().GetWidgetStyle<FButtonStyle>(
+					TEXT("SimpleButton")))
+			.ContentPadding(FMargin(3.0f))
+			.ToolTipText(
+				NSLOCTEXT(
+					"DiurnalCycleToolbar",
+					"OpenSettingsTooltip",
+					"Open Day/Night Cycle project settings"))
+			.OnClicked(
+				this,
+				&SDiurnalCycleToolbarWidget::OpenSettings)
+			[
+				SNew(SBox)
+				.WidthOverride(16.0f)
+				.HeightOverride(16.0f)
+				[
+					SNew(SImage)
+					.Image(FAppStyle::Get().GetBrush(TEXT("Icons.Settings")))
+					.ColorAndOpacity(FSlateColor::UseForeground())
 				]
 			]
 		]
@@ -258,6 +279,7 @@ void SDiurnalCycleToolbarWidget::HandleBeginPIE(
 
 	DisplayText =
 		FText::GetEmpty();
+	if (ClockTextBlock) ClockTextBlock->SetText(DisplayText);
 
 	if (!TryBindToSubsystem())
 	{
@@ -273,6 +295,7 @@ void SDiurnalCycleToolbarWidget::HandleEndPIE(
 
 	DisplayText =
 		FText::GetEmpty();
+	if (ClockTextBlock) ClockTextBlock->SetText(DisplayText);
 }
 
 bool SDiurnalCycleToolbarWidget::TryBindToSubsystem()
@@ -378,6 +401,7 @@ HandleTimeChanged(
 	DisplayText =
 		FText::FromString(
 			Change.CurrentDateTime.ToString());
+	if (ClockTextBlock) ClockTextBlock->SetText(DisplayText);
 }
 
 void SDiurnalCycleToolbarWidget::
@@ -391,6 +415,7 @@ UpdateDisplayText()
 			? FText::FromString(
 				Subsystem->GetDateTime().ToString())
 			: FText::GetEmpty();
+	if (ClockTextBlock) ClockTextBlock->SetText(DisplayText);
 }
 
 FText SDiurnalCycleToolbarWidget::
@@ -757,6 +782,25 @@ FindEditorWorldSettings() const
 #pragma endregion
 
 #pragma region ProjectSettings
+
+FReply SDiurnalCycleToolbarWidget::OpenScheduleBrowser()
+{
+	FDiurnalCycleEditorModule::OpenScheduleBrowser();
+	return FReply::Handled();
+}
+
+const FSlateBrush* SDiurnalCycleToolbarWidget::GetWorldPolicyIcon() const
+{
+	switch (GetEditorWorldPolicy())
+	{
+	case EDiurnalCycleWorldTimePolicy::Advance:
+		return FDiurnalCycleEditorStyle::Get().GetBrush(TEXT("DiurnalCycle.Policy.Advance"));
+	case EDiurnalCycleWorldTimePolicy::Freeze:
+		return FDiurnalCycleEditorStyle::Get().GetBrush(TEXT("DiurnalCycle.Policy.Freeze"));
+	default:
+		return FDiurnalCycleEditorStyle::Get().GetBrush(TEXT("DiurnalCycle.Policy.Default"));
+	}
+}
 
 FReply SDiurnalCycleToolbarWidget::OpenSettings()
 {

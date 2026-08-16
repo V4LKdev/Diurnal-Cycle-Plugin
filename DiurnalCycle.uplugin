@@ -1,7 +1,7 @@
 ﻿{
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.2.0",
+	"Version": 2,
+	"VersionName": "0.3.0",
 	"FriendlyName": "Day/Night Cycle",
 	"Description": "A lightweight, designer-friendly day-night cycle with exact time, scheduled events and ranges, gates, persistence, and Gameplay Debugger support.",
 	"Category": "Gameplay",
@@ -17,6 +17,11 @@
 		{
 			"Name": "DiurnalCycleRuntime",
 			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		},
+		{
+			"Name": "DiurnalCycleBlueprint",
+			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},
 		{
@@ -28,6 +33,12 @@
 			"Name": "DiurnalCycleEditor",
 			"Type": "Editor",
 			"LoadingPhase": "PostEngineInit"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "GameplayTagsEditor",
+			"Enabled": true
 		}
 	]
 }

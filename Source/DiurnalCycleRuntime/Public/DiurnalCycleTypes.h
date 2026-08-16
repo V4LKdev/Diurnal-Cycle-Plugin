@@ -5,12 +5,16 @@
 
 #include "DiurnalCycleTypes.generated.h"
 
+class UDiurnalSchedule;
+
 #pragma region ConstantsAndValidation
 
 namespace DiurnalCycle
 {
-	/** Current serialized FDiurnalCycleState layout. */
-	constexpr int32 GCurrentStateVersion = 4;
+	/** First public persistence schema for each independently restorable state. */
+	constexpr int32 GCurrentStateVersion = 1;
+	constexpr int32 GCurrentClockStateVersion = 1;
+	constexpr int32 GCurrentScheduleStateVersion = 1;
 
 	constexpr double GMinutesPerHour = 60.0;
 	constexpr double GSecondsPerHour = 3600.0;
@@ -67,12 +71,80 @@ namespace DiurnalCycle
 
 #pragma endregion
 
+#pragma region ScheduleIdentity
+
+/**
+ * Stable reference to one schedule entry.
+ *
+ * Authored entries are identified by schedule asset plus EntryId. Dynamic
+ * runtime entries have no schedule asset and are identified by their
+ * session-stable EntryId. Gameplay Tags are deliberately not part of identity.
+ */
+USTRUCT(BlueprintType, DisplayName = "Day Night Cycle Schedule Entry Reference")
+struct DIURNALCYCLERUNTIME_API FDiurnalScheduleEntryReference
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, SaveGame, Category = "Day Night Cycle")
+	TSoftObjectPtr<UDiurnalSchedule> Schedule;
+
+	UPROPERTY(BlueprintReadOnly, SaveGame, Category = "Day Night Cycle")
+	FGuid EntryId;
+
+	bool IsValid() const
+	{
+		// EntryId is the required exact identity. A null Schedule is intentional
+		// for runtime-owned entries; Schedule presence alone never makes this valid.
+		return EntryId.IsValid();
+	}
+
+	bool IsAuthoredAssetEntry() const
+	{
+		return !Schedule.IsNull();
+	}
+
+	FString ToString() const
+	{
+		return FString::Printf(
+			TEXT("%s:%s"),
+			Schedule.IsNull()
+				? TEXT("Runtime")
+				: *Schedule.ToSoftObjectPath().ToString(),
+			*EntryId.ToString(EGuidFormats::DigitsWithHyphensInBraces));
+	}
+
+	friend bool operator==(
+		const FDiurnalScheduleEntryReference& Left,
+		const FDiurnalScheduleEntryReference& Right)
+	{
+		return Left.EntryId == Right.EntryId
+			&& Left.Schedule.ToSoftObjectPath()
+				== Right.Schedule.ToSoftObjectPath();
+	}
+
+	friend bool operator!=(
+		const FDiurnalScheduleEntryReference& Left,
+		const FDiurnalScheduleEntryReference& Right)
+	{
+		return !(Left == Right);
+	}
+};
+
+inline uint32 GetTypeHash(const FDiurnalScheduleEntryReference& Reference)
+{
+	return HashCombine(
+		GetTypeHash(Reference.Schedule.ToSoftObjectPath()),
+		GetTypeHash(Reference.EntryId));
+}
+
+#pragma endregion
+
 #pragma region TimeOfDay
 
 /**
  * Time within a game day without an associated day number.
  *
- * Use this type for recurring daily times such as 06:00 or 18:00. Use
+ * Use this type for recurring times of day such as 06:00 or 18:00. Use
  * FDiurnalDateTime when referring to one absolute point on the game timeline.
  */
 USTRUCT(
@@ -252,10 +324,84 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeOfDay
 
 #pragma endregion
 
+#pragma region Recurrence
+
+/** Whether a schedule entry occurs once or repeats at a day interval. */
+UENUM(BlueprintType)
+enum class EDiurnalRecurrenceMode : uint8
+{
+	Once UMETA(DisplayName = "Once"),
+	Repeating UMETA(DisplayName = "Every N Days")
+};
+
+/** Shared day recurrence used by both instantaneous events and time ranges. */
+USTRUCT(BlueprintType, DisplayName = "Day Night Cycle Recurrence")
+struct DIURNALCYCLERUNTIME_API FDiurnalRecurrence
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Day Night Cycle", meta = (DisplayName = "Occurs"))
+	EDiurnalRecurrenceMode Mode = EDiurnalRecurrenceMode::Repeating;
+
+	/** Day of the one-off occurrence, or the first repeating occurrence. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Day Night Cycle", meta = (ClampMin = "1", UIMin = "1"))
+	int32 AnchorDay = 1;
+
+	/** Repetition interval in game days. Used only for Repeating. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Day Night Cycle", meta = (ClampMin = "1", UIMin = "1", EditCondition = "Mode == EDiurnalRecurrenceMode::Repeating", EditConditionHides))
+	int32 IntervalDays = 1;
+
+	static FDiurnalRecurrence Once(const int32 Day)
+	{
+		FDiurnalRecurrence Result;
+		Result.Mode = EDiurnalRecurrenceMode::Once;
+		Result.AnchorDay = FMath::Max(1, Day);
+		Result.IntervalDays = 1;
+		return Result;
+	}
+
+	static FDiurnalRecurrence Repeating(const int32 FirstDay = 1, const int32 EveryDays = 1)
+	{
+		FDiurnalRecurrence Result;
+		Result.Mode = EDiurnalRecurrenceMode::Repeating;
+		Result.AnchorDay = FMath::Max(1, FirstDay);
+		Result.IntervalDays = FMath::Max(1, EveryDays);
+		return Result;
+	}
+
+	bool IsValid() const
+	{
+		if (AnchorDay < 1)
+		{
+			return false;
+		}
+
+		switch (Mode)
+		{
+		case EDiurnalRecurrenceMode::Once:
+			return true;
+		case EDiurnalRecurrenceMode::Repeating:
+			return IntervalDays >= 1;
+		default:
+			return false;
+		}
+	}
+
+	bool OccursOnDay(const int32 Day) const
+	{
+		if (!IsValid() || Day < AnchorDay) return false;
+		return Mode == EDiurnalRecurrenceMode::Once
+			? Day == AnchorDay
+			: (Day - AnchorDay) % IntervalDays == 0;
+	}
+};
+
+#pragma endregion
+
 #pragma region TimeRanges
 
 /**
- * Gameplay-tagged recurring range within a game day.
+ * Named recurring range with optional semantic Gameplay Tags.
  *
  * Ranges are start-inclusive and end-exclusive: [StartTime, EndTime).
  * When EndTime is earlier than StartTime, the range wraps across midnight.
@@ -267,27 +413,57 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeRange
 {
 	GENERATED_BODY()
 
+	/** Stable authored identity used by editor tooling. Not a gameplay key. */
+	UPROPERTY()
+	FGuid EntryId;
+
+	/** Human-facing authoring label. Never used as a runtime lookup key. */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Day Night Cycle",
+		meta = (DisplayName = "Name"))
+	FName RangeName;
+
+#if WITH_EDITORONLY_DATA
+	/** Uses a custom authored color instead of the deterministic editor palette. */
+	UPROPERTY(EditAnywhere, Category = "Presentation", meta = (DisplayName = "Override Color"))
+	bool bOverrideEditorColor = false;
+
+	/** Editor-only planning color. It never participates in runtime behavior. */
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Presentation",
+		meta = (EditCondition = "bOverrideEditorColor", DisplayName = "Color"))
+	FLinearColor EditorColor = FLinearColor(0.18f, 0.55f, 0.48f, 1.0f);
+#endif
+
 	FDiurnalTimeRange() = default;
 
 	FDiurnalTimeRange(
 		const FGameplayTag InRangeTag,
 		const FDiurnalTimeOfDay& InStartTime,
 		const FDiurnalTimeOfDay& InEndTime)
-		: RangeTag(InRangeTag)
+		: RangeName(InRangeTag.IsValid() ? InRangeTag.GetTagLeafName() : NAME_None)
 		, StartTime(InStartTime)
 		, EndTime(InEndTime)
 	{
+		if (InRangeTag.IsValid())
+		{
+			RangeTags.AddTag(InRangeTag);
+		}
 	}
 
-	/** Semantic identifier used by gameplay systems. */
+	/** Optional many-to-many semantic classification and query tags. */
 	UPROPERTY(
 		EditAnywhere,
 		BlueprintReadOnly,
 		Category = "Day Night Cycle",
 		meta = (
+			DisplayName = "Tags",
 			Categories = "DiurnalCycle.TimeRange"
 		))
-	FGameplayTag RangeTag;
+	FGameplayTagContainer RangeTags;
 
 	/** Inclusive start of the range. */
 	UPROPERTY(
@@ -303,14 +479,44 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeRange
 		Category = "Day Night Cycle")
 	FDiurnalTimeOfDay EndTime;
 
+	/** Determines on which game days this range begins. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Day Night Cycle")
+	FDiurnalRecurrence Recurrence;
+
 	/** Returns whether this range can be added to the runtime schedule. */
 	bool IsValid() const
 	{
-		return RangeTag.IsValid()
-			&& StartTime.IsValid()
+		return StartTime.IsValid()
 			&& EndTime.IsValid()
-			&& StartTime != EndTime;
+			&& StartTime != EndTime
+			&& Recurrence.IsValid();
 	}
+
+	bool OccursOnDay(const int32 Day) const
+	{
+		return Recurrence.OccursOnDay(Day);
+	}
+
+	/** First semantic tag, used only for concise presentation. */
+	FGameplayTag GetPrimaryTag() const
+	{
+		return !RangeTags.IsEmpty() ? RangeTags.First() : FGameplayTag();
+	}
+
+	/** Exact tag membership; intentionally does not perform hierarchical matching. */
+	bool HasTagExact(const FGameplayTag Tag) const
+	{
+		return Tag.IsValid() && RangeTags.HasTagExact(Tag);
+	}
+
+	/** Presentation label, or a generic label for unnamed transient values. */
+	FName GetDisplayName() const
+	{
+		if (!RangeName.IsNone()) return RangeName;
+		const FGameplayTag Tag = GetPrimaryTag();
+		return Tag.IsValid() ? Tag.GetTagLeafName() : FName(TEXT("New Range"));
+	}
+
 
 	/**
 	 * Returns whether TimeOfDay lies within this range.
@@ -343,6 +549,18 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeRange
 
 		return TimeSeconds >= StartSeconds
 			|| TimeSeconds < EndSeconds;
+	}
+
+	/** Date-aware active check. Wrapped morning segments belong to the preceding start day. */
+	bool ContainsOnDay(const int32 Day, const FDiurnalTimeOfDay& TimeOfDay) const
+	{
+		if (!Contains(TimeOfDay) || Day < 1) return false;
+		const bool bWrapsMidnight = StartTime > EndTime;
+		if (!bWrapsMidnight || TimeOfDay >= StartTime)
+		{
+			return OccursOnDay(Day);
+		}
+		return Day > 1 && OccursOnDay(Day - 1);
 	}
 };
 
@@ -650,10 +868,10 @@ enum class EDiurnalTimeEventBehavior : uint8
 };
 
 /**
- * Gameplay-tagged scheduled occurrence.
+ * Named scheduled occurrence with optional semantic Gameplay Tags.
  *
- * Daily events occur once on every crossed game day. Dated events occur only
- * on EventDay. Ordinary event occurrences are emitted only during forward
+ * Repeating events occur at their configured interval. Once events occur only
+ * on their anchor day. Ordinary event occurrences are emitted only during forward
  * advancement; teleporting or restoring state does not replay them.
  *
  * BlockTime events additionally act as time gates. Multiple gates may become
@@ -666,32 +884,60 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeEvent
 {
 	GENERATED_BODY()
 
+	/** Stable authored identity used by editor tooling. Not a gameplay key. */
+	UPROPERTY()
+	FGuid EntryId;
+
+	/** Human-facing authoring label. Never used as a runtime lookup key. */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadOnly,
+		Category = "Day Night Cycle",
+		meta = (DisplayName = "Name"))
+	FName EventName;
+
+#if WITH_EDITORONLY_DATA
+	/** Uses a custom authored color instead of the deterministic editor palette. */
+	UPROPERTY(EditAnywhere, Category = "Presentation", meta = (DisplayName = "Override Color"))
+	bool bOverrideEditorColor = false;
+
+	/** Editor-only planning color. It never participates in runtime behavior. */
+	UPROPERTY(
+		EditAnywhere,
+		Category = "Presentation",
+		meta = (EditCondition = "bOverrideEditorColor", DisplayName = "Color"))
+	FLinearColor EditorColor = FLinearColor(0.32f, 0.43f, 0.72f, 1.0f);
+#endif
+
 	FDiurnalTimeEvent() = default;
 
 	FDiurnalTimeEvent(
 		const FGameplayTag InEventTag,
 		const FDiurnalTimeOfDay& InTimeOfDay,
-		const bool bInDatedEvent = false,
-		const int32 InEventDay = 1,
+		const FDiurnalRecurrence& InRecurrence = FDiurnalRecurrence::Repeating(),
 		const EDiurnalTimeEventBehavior InBehavior =
 			EDiurnalTimeEventBehavior::Notify)
-		: EventTag(InEventTag)
+		: EventName(InEventTag.IsValid() ? InEventTag.GetTagLeafName() : NAME_None)
 		, TimeOfDay(InTimeOfDay)
-		, bDatedEvent(bInDatedEvent)
-		, EventDay(InEventDay)
+		, Recurrence(InRecurrence)
 		, Behavior(InBehavior)
 	{
+		if (InEventTag.IsValid())
+		{
+			EventTags.AddTag(InEventTag);
+		}
 	}
 
-	/** Semantic identifier used to route the occurrence to gameplay systems. */
+	/** Optional many-to-many semantic classification and occurrence-routing tags. */
 	UPROPERTY(
 		EditAnywhere,
 		BlueprintReadOnly,
 		Category = "Day Night Cycle",
 		meta = (
+			DisplayName = "Tags",
 			Categories = "DiurnalCycle.TimeEvent"
 		))
-	FGameplayTag EventTag;
+	FGameplayTagContainer EventTags;
 
 	/** Exact time of day at which the occurrence is scheduled. */
 	UPROPERTY(
@@ -701,26 +947,9 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeEvent
 	FDiurnalTimeOfDay TimeOfDay =
 		FDiurnalTimeOfDay::Noon();
 
-	/** Whether this event occurs only on one specific game day. */
-	UPROPERTY(
-		EditAnywhere,
-		BlueprintReadOnly,
-		Category = "Day Night Cycle",
-		AdvancedDisplay)
-	bool bDatedEvent = false;
-
-	/** One-based game day used when bDatedEvent is enabled. */
-	UPROPERTY(
-		EditAnywhere,
-		BlueprintReadOnly,
-		Category = "Day Night Cycle",
-		meta = (
-			EditCondition = "bDatedEvent",
-			EditConditionHides,
-			ClampMin = "1",
-			UIMin = "1"
-		))
-	int32 EventDay = 1;
+	/** Determines whether this event occurs once or repeats every N game days. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Day Night Cycle")
+	FDiurnalRecurrence Recurrence;
 
 	/** Consequence applied when this event occurrence is reached. */
 	UPROPERTY(
@@ -733,11 +962,30 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeEvent
 	/** Returns whether this event can be added to the runtime schedule. */
 	bool IsValid() const
 	{
-		return EventTag.IsValid()
-			&& TimeOfDay.IsValid()
-			&& (!bDatedEvent
-				|| EventDay >= 1);
+		return TimeOfDay.IsValid()
+			&& Recurrence.IsValid();
 	}
+
+	/** First semantic tag, used only for concise presentation. */
+	FGameplayTag GetPrimaryTag() const
+	{
+		return !EventTags.IsEmpty() ? EventTags.First() : FGameplayTag();
+	}
+
+	/** Exact tag membership; intentionally does not perform hierarchical matching. */
+	bool HasTagExact(const FGameplayTag Tag) const
+	{
+		return Tag.IsValid() && EventTags.HasTagExact(Tag);
+	}
+
+	/** Presentation label, or a generic label for unnamed transient values. */
+	FName GetDisplayName() const
+	{
+		if (!EventName.IsNone()) return EventName;
+		const FGameplayTag Tag = GetPrimaryTag();
+		return Tag.IsValid() ? Tag.GetTagLeafName() : FName(TEXT("New Event"));
+	}
+
 
 	/** Returns whether reaching this event creates a time gate. */
 	bool IsBlocking() const
@@ -750,9 +998,103 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeEvent
 	bool OccursOnDay(
 		const int32 Day) const
 	{
-		return Day >= 1
-			&& (!bDatedEvent
-				|| EventDay == Day);
+		return Recurrence.OccursOnDay(Day);
+	}
+};
+
+#pragma endregion
+
+#pragma region EventOccurrenceIdentity
+
+/** Exact identity of one emitted event occurrence. */
+USTRUCT(BlueprintType, DisplayName = "Day Night Cycle Event Occurrence Handle")
+struct DIURNALCYCLERUNTIME_API FDiurnalEventOccurrenceHandle
+{
+	GENERATED_BODY()
+
+	/** Authored/runtime entry that produced the occurrence. */
+	UPROPERTY(BlueprintReadOnly, SaveGame, Category = "Day Night Cycle")
+	FDiurnalScheduleEntryReference Entry;
+
+	/** Timestamp at which this particular occurrence was emitted. */
+	UPROPERTY(BlueprintReadOnly, SaveGame, Category = "Day Night Cycle")
+	FDiurnalDateTime OccurrenceTime;
+
+	/** Session-unique occurrence identity, required for exact gate acknowledgement. */
+	UPROPERTY(BlueprintReadOnly, SaveGame, Category = "Day Night Cycle")
+	FGuid OccurrenceId;
+
+	bool IsValid() const
+	{
+		return Entry.IsValid()
+			&& OccurrenceTime.IsValid()
+			&& OccurrenceId.IsValid();
+	}
+
+	friend bool operator==(
+		const FDiurnalEventOccurrenceHandle& Left,
+		const FDiurnalEventOccurrenceHandle& Right)
+	{
+		return Left.OccurrenceId == Right.OccurrenceId;
+	}
+
+	friend bool operator!=(
+		const FDiurnalEventOccurrenceHandle& Left,
+		const FDiurnalEventOccurrenceHandle& Right)
+	{
+		return !(Left == Right);
+	}
+};
+
+#pragma endregion
+
+#pragma region ResolvedSchedule
+
+/** Runtime event plus the authored layer that contributed it. */
+USTRUCT(BlueprintType, DisplayName = "Resolved Day Night Cycle Event")
+struct DIURNALCYCLERUNTIME_API FDiurnalResolvedTimeEvent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Day Night Cycle")
+	FDiurnalTimeEvent Event;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Day Night Cycle")
+	TSoftObjectPtr<UDiurnalSchedule> SourceSchedule;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Day Night Cycle")
+	bool bRuntimeAdded = false;
+
+	FDiurnalScheduleEntryReference GetEntryReference() const
+	{
+		FDiurnalScheduleEntryReference Result;
+		Result.Schedule = SourceSchedule;
+		Result.EntryId = Event.EntryId;
+		return Result;
+	}
+};
+
+/** Runtime time range plus the authored layer that contributed it. */
+USTRUCT(BlueprintType, DisplayName = "Resolved Day Night Cycle Time Range")
+struct DIURNALCYCLERUNTIME_API FDiurnalResolvedTimeRange
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Day Night Cycle")
+	FDiurnalTimeRange Range;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Day Night Cycle")
+	TSoftObjectPtr<UDiurnalSchedule> SourceSchedule;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Day Night Cycle")
+	bool bRuntimeAdded = false;
+
+	FDiurnalScheduleEntryReference GetEntryReference() const
+	{
+		FDiurnalScheduleEntryReference Result;
+		Result.Schedule = SourceSchedule;
+		Result.EntryId = Range.EntryId;
+		return Result;
 	}
 };
 
@@ -760,15 +1102,61 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeEvent
 
 #pragma region Persistence
 
-/**
- * Serializable mutable state of a day-night-cycle clock.
- *
- * Store this struct inside a game-owned USaveGame class. The configured base
- * rate and explicit pause state are intentionally not included.
- *
- * Restoring state does not replay ordinary event occurrences. Runtime ranges
- * and active time gates are restored/reconciled as persistent temporal state.
- */
+/** Independently serializable clock state. */
+USTRUCT(BlueprintType, DisplayName = "Day Night Cycle Clock State")
+struct DIURNALCYCLERUNTIME_API FDiurnalClockState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	int32 Version = DiurnalCycle::GCurrentClockStateVersion;
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	double TotalGameHours = 0.0;
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	double TimeScale = DiurnalCycle::GDefaultTimeScale;
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	double RealSecondsPerGameHour = DiurnalCycle::GDefaultRealSecondsPerGameHour;
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	bool bPaused = false;
+};
+
+/** Independently serializable runtime schedule state. */
+USTRUCT(BlueprintType, DisplayName = "Day Night Cycle Schedule Runtime State")
+struct DIURNALCYCLERUNTIME_API FDiurnalScheduleRuntimeState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	int32 Version = DiurnalCycle::GCurrentScheduleStateVersion;
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	TArray<TSoftObjectPtr<UDiurnalSchedule>> ActiveSchedules;
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	TArray<FDiurnalTimeEvent> RuntimeTimeEvents;
+
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	TArray<FDiurnalTimeRange> RuntimeTimeRanges;
+
+	/** Exact authored entries disabled by the mutable runtime overlay. */
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	TArray<FDiurnalScheduleEntryReference> DisabledEventEntries;
+
+	/** Exact authored ranges disabled by the mutable runtime overlay. */
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	TArray<FDiurnalScheduleEntryReference> DisabledRangeEntries;
+
+	/** Exact blocking occurrences that currently hold the clock. */
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	TArray<FDiurnalEventOccurrenceHandle> ActiveTimeGateOccurrences;
+
+};
+
+/** Complete aggregate state. Clock and schedule can also be restored alone. */
 USTRUCT(
 	BlueprintType,
 	DisplayName = "Day Night Cycle State")
@@ -784,46 +1172,12 @@ struct DIURNALCYCLERUNTIME_API FDiurnalCycleState
 	int32 Version =
 		DiurnalCycle::GCurrentStateVersion;
 
-	/** Exact elapsed game hours, including sub-second precision. */
-	UPROPERTY(
-		BlueprintReadWrite,
-		SaveGame,
-		Category = "Day Night Cycle")
-	double TotalGameHours = 0.0;
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	FDiurnalClockState ClockState;
 
-	/** Clock-speed multiplier active when the state was captured. */
-	UPROPERTY(
-		BlueprintReadWrite,
-		SaveGame,
-		Category = "Day Night Cycle")
-	double TimeScale =
-		DiurnalCycle::GDefaultTimeScale;
+	UPROPERTY(BlueprintReadWrite, SaveGame, Category = "Day Night Cycle")
+	FDiurnalScheduleRuntimeState ScheduleState;
 
-	/** Complete mutable runtime event schedule. */
-	UPROPERTY(
-		BlueprintReadWrite,
-		SaveGame,
-		Category = "Day Night Cycle")
-	TArray<FDiurnalTimeEvent> TimeEvents;
-
-	/** Complete mutable runtime time-range schedule. */
-	UPROPERTY(
-		BlueprintReadWrite,
-		SaveGame,
-		Category = "Day Night Cycle")
-	TArray<FDiurnalTimeRange> TimeRanges;
-
-	/**
-	 * Unique tags of all time gates currently blocking advancement.
-	 *
-	 * Every tag must identify a blocking event whose occurrence matches the
-	 * saved clock position. An empty array means the clock is not gate-blocked.
-	 */
-	UPROPERTY(
-		BlueprintReadWrite,
-		SaveGame,
-		Category = "Day Night Cycle")
-	TArray<FGameplayTag> ActiveTimeGates;
 };
 
 #pragma endregion

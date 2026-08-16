@@ -1,191 +1,259 @@
-﻿#include "Subsystem/DiurnalCycleSubsystem.h"
+#include "Subsystem/DiurnalCycleSubsystem.h"
 
 #include "DiurnalCycleLog.h"
 
 #pragma region EventSchedule
 
-bool UDiurnalCycleSubsystem::TryGetTimeEvent(
-	const FGameplayTag EventTag,
-	FDiurnalTimeEvent& OutTimeEvent) const
+TArray<FDiurnalResolvedTimeEvent> UDiurnalCycleSubsystem::FindTimeEventsByTag(
+	const FGameplayTag EventTag) const
 {
+	TArray<FDiurnalResolvedTimeEvent> Result;
 	if (!EventTag.IsValid())
 	{
-		return false;
+		return Result;
 	}
 
-	const FDiurnalTimeEvent* TimeEvent =
-		TimeEvents.FindByPredicate(
-			[EventTag](
-				const FDiurnalTimeEvent& Candidate)
-			{
-				return Candidate.EventTag
-					== EventTag;
-			});
+	for (const FDiurnalResolvedTimeEvent& Resolved : ResolvedTimeEvents)
+	{
+		if (Resolved.Event.HasTagExact(EventTag))
+		{
+			Result.Add(Resolved);
+		}
+	}
+	return Result;
+}
 
-	if (!TimeEvent)
+TArray<FDiurnalResolvedTimeEvent> UDiurnalCycleSubsystem::FindTimeEventsByTagQuery(
+	const FGameplayTagQuery& TagQuery) const
+{
+	TArray<FDiurnalResolvedTimeEvent> Result;
+	for (const FDiurnalResolvedTimeEvent& Resolved : ResolvedTimeEvents)
+	{
+		if (TagQuery.IsEmpty() || TagQuery.Matches(Resolved.Event.EventTags))
+		{
+			Result.Add(Resolved);
+		}
+	}
+	return Result;
+}
+
+bool UDiurnalCycleSubsystem::TryGetTimeEvent(
+	const FDiurnalScheduleEntryReference& Reference,
+	FDiurnalResolvedTimeEvent& OutTimeEvent) const
+{
+	OutTimeEvent = {};
+	if (!Reference.IsValid())
 	{
 		return false;
 	}
-
-	OutTimeEvent =
-		*TimeEvent;
-
+	const FDiurnalResolvedTimeEvent* Match = ResolvedTimeEvents.FindByPredicate(
+		[&Reference](const FDiurnalResolvedTimeEvent& Candidate)
+		{
+			return Candidate.GetEntryReference() == Reference;
+		});
+	if (!Match)
+	{
+		return false;
+	}
+	OutTimeEvent = *Match;
 	return true;
 }
 
-bool UDiurnalCycleSubsystem::HasTimeEvent(
-	const FGameplayTag EventTag) const
+bool UDiurnalCycleSubsystem::HasTimeEvent(const FGameplayTag EventTag) const
 {
-	if (!EventTag.IsValid())
-	{
-		return false;
-	}
+	return EventTag.IsValid()
+		&& ResolvedTimeEvents.ContainsByPredicate(
+			[EventTag](const FDiurnalResolvedTimeEvent& Resolved)
+			{
+				return Resolved.Event.HasTagExact(EventTag);
+			});
+}
 
-	return TimeEvents.ContainsByPredicate(
-		[EventTag](
-			const FDiurnalTimeEvent& Event)
-		{
-			return Event.EventTag
-				== EventTag;
-		});
+bool UDiurnalCycleSubsystem::TryAddTimeEvent(const FDiurnalTimeEvent& TimeEvent)
+{
+	FDiurnalScheduleEntryReference IgnoredReference;
+	return TryAddTimeEvent(TimeEvent, IgnoredReference);
 }
 
 bool UDiurnalCycleSubsystem::TryAddTimeEvent(
-	const FDiurnalTimeEvent& TimeEvent)
+	const FDiurnalTimeEvent& TimeEvent,
+	FDiurnalScheduleEntryReference& OutReference)
 {
-	if (!TimeEvent.IsValid())
+	OutReference = {};
+	FDiurnalTimeEvent AddedEvent = TimeEvent;
+	if (!AddedEvent.IsValid())
 	{
 		UE_LOG(
 			LogDiurnalCycle,
 			Warning,
-			TEXT(
-				"Rejected invalid event: "
-				"Tag='%s' Time=%s Dated=%s Day=%d."),
-			*TimeEvent.EventTag.ToString(),
-			*TimeEvent.TimeOfDay.ToString(),
-			TimeEvent.bDatedEvent
-				? TEXT("yes")
-				: TEXT("no"),
-			TimeEvent.EventDay);
-
+			TEXT("Rejected invalid event '%s': Time=%s Recurrence=%d Anchor=%d Interval=%d."),
+			*AddedEvent.GetDisplayName().ToString(),
+			*AddedEvent.TimeOfDay.ToString(),
+			static_cast<int32>(AddedEvent.Recurrence.Mode),
+			AddedEvent.Recurrence.AnchorDay,
+			AddedEvent.Recurrence.IntervalDays);
 		return false;
 	}
 
-	if (HasTimeEvent(
-			TimeEvent.EventTag))
+	if (AddedEvent.EventName.IsNone())
 	{
-		UE_LOG(
-			LogDiurnalCycle,
-			Warning,
-			TEXT(
-				"Rejected event '%s' because event tags "
-				"must be unique."),
-			*TimeEvent.EventTag.ToString());
+		const FGameplayTag FirstTag = AddedEvent.GetPrimaryTag();
+		AddedEvent.EventName = FirstTag.IsValid()
+			? FirstTag.GetTagLeafName()
+			: FName(TEXT("Runtime Event"));
+	}
 
+	const auto IdCollides = [this](const FGuid& EntryId)
+	{
+		return ResolvedTimeEvents.ContainsByPredicate(
+			[EntryId](const FDiurnalResolvedTimeEvent& Existing)
+			{
+				return Existing.SourceSchedule.IsNull()
+					&& Existing.Event.EntryId == EntryId;
+			});
+	};
+	if (!AddedEvent.EntryId.IsValid() || IdCollides(AddedEvent.EntryId))
+	{
+		do
+		{
+			AddedEvent.EntryId = FGuid::NewGuid();
+		}
+		while (IdCollides(AddedEvent.EntryId));
+	}
+
+	RuntimeTimeEvents.Add(AddedEvent);
+	if (!RebuildCompiledSchedule(true))
+	{
+		RuntimeTimeEvents.Pop();
 		return false;
 	}
 
-	const FDiurnalTimeEvent AddedEvent =
-		TimeEvent;
-
-	TimeEvents.Add(
-		AddedEvent);
-
-	SortTimeEvents();
-
-	UE_LOG(
-		LogDiurnalCycle,
-		Verbose,
-		TEXT(
-			"Added event '%s' at %s."),
-		*AddedEvent.EventTag.ToString(),
-		*AddedEvent.TimeOfDay.ToString());
-
-	TimeEventAddedEvent.Broadcast(
-		AddedEvent);
-
-	/*
-	 * A blocking event added exactly at the current absolute timestamp becomes
-	 * active immediately. Being somewhere within the same displayed second is
-	 * not sufficient; the clock must be exactly on the occurrence.
-	 */
-	const FDiurnalDateTime CurrentDateTime =
-		GetDateTime();
-
-	const bool bAtExactWholeSecond =
-		FMath::IsNearlyEqual(
-			TotalGameHours,
-			CurrentDateTime.ToTotalHours(),
-			1.0e-9);
-
-	if (AddedEvent.IsBlocking()
-		&& bAtExactWholeSecond
-		&& AddedEvent.OccursOnDay(
-			CurrentDateTime.Day)
-		&& AddedEvent.TimeOfDay
-			== CurrentDateTime.GetTimeOfDay())
-	{
-		TArray<FGameplayTag> NewActiveGates =
-			ActiveTimeGates;
-
-		NewActiveGates.AddUnique(
-			AddedEvent.EventTag);
-
-		SetActiveTimeGates(
-			NewActiveGates,
-			CurrentDateTime,
-			true);
-	}
-
+	OutReference.EntryId = AddedEvent.EntryId;
 	return true;
 }
 
 bool UDiurnalCycleSubsystem::RemoveTimeEvent(
-	const FGameplayTag EventTag)
+	const FDiurnalScheduleEntryReference& Reference)
+{
+	FDiurnalResolvedTimeEvent Resolved;
+	if (!TryGetTimeEvent(Reference, Resolved))
+	{
+		return false;
+	}
+
+	const int32 RuntimeIndex = Resolved.bRuntimeAdded
+		? RuntimeTimeEvents.IndexOfByPredicate(
+			[&Reference](const FDiurnalTimeEvent& Event)
+			{
+				return Event.EntryId == Reference.EntryId;
+			})
+		: INDEX_NONE;
+	FDiurnalTimeEvent RemovedRuntimeEvent;
+	if (RuntimeIndex != INDEX_NONE)
+	{
+		RemovedRuntimeEvent = RuntimeTimeEvents[RuntimeIndex];
+		RuntimeTimeEvents.RemoveAt(RuntimeIndex);
+	}
+	else
+	{
+		DisabledEventEntries.AddUnique(Reference);
+	}
+
+	if (!RebuildCompiledSchedule(true))
+	{
+		if (RuntimeIndex != INDEX_NONE)
+		{
+			RuntimeTimeEvents.Insert(RemovedRuntimeEvent, RuntimeIndex);
+		}
+		else
+		{
+			DisabledEventEntries.Remove(Reference);
+		}
+		return false;
+	}
+	return true;
+}
+
+int32 UDiurnalCycleSubsystem::RemoveTimeEventsByTag(const FGameplayTag EventTag)
+{
+	const TArray<FDiurnalResolvedTimeEvent> Matches = FindTimeEventsByTag(EventTag);
+	if (Matches.IsEmpty()) return 0;
+	const TArray<FDiurnalTimeEvent> PreviousRuntimeEvents = RuntimeTimeEvents;
+	const TArray<FDiurnalScheduleEntryReference> PreviousDisabledEvents = DisabledEventEntries;
+	for (const FDiurnalResolvedTimeEvent& Match : Matches)
+	{
+		const FDiurnalScheduleEntryReference Reference = Match.GetEntryReference();
+		if (Match.bRuntimeAdded)
+		{
+			RuntimeTimeEvents.RemoveAll([&Reference](const FDiurnalTimeEvent& Event)
+			{
+				return Event.EntryId == Reference.EntryId;
+			});
+		}
+		else
+		{
+			DisabledEventEntries.AddUnique(Reference);
+		}
+	}
+	if (!RebuildCompiledSchedule(true))
+	{
+		RuntimeTimeEvents = PreviousRuntimeEvents;
+		DisabledEventEntries = PreviousDisabledEvents;
+		return 0;
+	}
+	return Matches.Num();
+}
+
+bool UDiurnalCycleSubsystem::ReenableTimeEvent(
+	const FDiurnalScheduleEntryReference& Reference)
+{
+	if (!Reference.IsValid() || DisabledEventEntries.Remove(Reference) == 0)
+	{
+		return false;
+	}
+	if (!RebuildCompiledSchedule(true))
+	{
+		DisabledEventEntries.AddUnique(Reference);
+		return false;
+	}
+	return true;
+}
+
+int32 UDiurnalCycleSubsystem::ReenableTimeEventsByTag(const FGameplayTag EventTag)
 {
 	if (!EventTag.IsValid())
 	{
-		return false;
+		return 0;
 	}
 
-	const int32 EventIndex =
-		TimeEvents.IndexOfByPredicate(
-			[EventTag](
-				const FDiurnalTimeEvent& Event)
-			{
-				return Event.EventTag
-					== EventTag;
-			});
-
-	if (EventIndex == INDEX_NONE)
+	TArray<FDiurnalResolvedTimeEvent> AllEvents;
+	TArray<FDiurnalResolvedTimeRange> IgnoredRanges;
+	TArray<TObjectPtr<UDiurnalSchedule>> IgnoredSchedules;
+	if (!CompileScheduleLayers(ActiveScheduleReferences, RuntimeTimeEvents, RuntimeTimeRanges, {}, DisabledRangeEntries, AllEvents, IgnoredRanges, IgnoredSchedules))
 	{
-		return false;
+		return 0;
 	}
-
-	const FDiurnalTimeEvent RemovedEvent =
-		TimeEvents[EventIndex];
-
-	if (IsTimeGateActive(
-			EventTag))
+	TArray<FDiurnalScheduleEntryReference> Matches;
+	for (const FDiurnalResolvedTimeEvent& Event : AllEvents)
 	{
-		ReleaseTimeGate(
-			EventTag);
+		const FDiurnalScheduleEntryReference Reference = Event.GetEntryReference();
+		if (DisabledEventEntries.Contains(Reference) && Event.Event.HasTagExact(EventTag))
+		{
+			Matches.Add(Reference);
+		}
 	}
-
-	TimeEvents.RemoveAt(
-		EventIndex);
-
-	UE_LOG(
-		LogDiurnalCycle,
-		Verbose,
-		TEXT(
-			"Removed event '%s'."),
-		*RemovedEvent.EventTag.ToString());
-
-	TimeEventRemovedEvent.Broadcast(
-		RemovedEvent);
-
-	return true;
+	if (Matches.IsEmpty()) return 0;
+	const TArray<FDiurnalScheduleEntryReference> PreviousDisabledEvents = DisabledEventEntries;
+	for (const FDiurnalScheduleEntryReference& Reference : Matches)
+	{
+		DisabledEventEntries.Remove(Reference);
+	}
+	if (!RebuildCompiledSchedule(true))
+	{
+		DisabledEventEntries = PreviousDisabledEvents;
+		return 0;
+	}
+	return Matches.Num();
 }
 
 #pragma endregion
@@ -196,50 +264,26 @@ bool UDiurnalCycleSubsystem::TryGetNextTimeEvent(
 	FDiurnalTimeEvent& OutEvent,
 	FDiurnalDateTime& OutOccurrenceTime) const
 {
-	double BestOccurrenceHours =
-		TNumericLimits<double>::Max();
-
-	const FDiurnalTimeEvent* BestEvent =
-		nullptr;
-
-	for (const FDiurnalTimeEvent& Event :
-		 TimeEvents)
+	OutEvent = {};
+	OutOccurrenceTime = {};
+	double BestOccurrenceHours = TNumericLimits<double>::Max();
+	const FDiurnalTimeEvent* BestEvent = nullptr;
+	for (const FDiurnalTimeEvent& Event : TimeEvents)
 	{
 		double OccurrenceHours = 0.0;
-
-		if (!TryGetNextOccurrenceHours(
-				Event,
-				TotalGameHours,
-				OccurrenceHours))
+		if (TryGetNextOccurrenceHours(Event, TotalGameHours, OccurrenceHours)
+			&& OccurrenceHours < BestOccurrenceHours)
 		{
-			continue;
+			BestOccurrenceHours = OccurrenceHours;
+			BestEvent = &Event;
 		}
-
-		if (OccurrenceHours
-			>= BestOccurrenceHours)
-		{
-			continue;
-		}
-
-		BestOccurrenceHours =
-			OccurrenceHours;
-
-		BestEvent =
-			&Event;
 	}
-
 	if (!BestEvent)
 	{
 		return false;
 	}
-
-	OutEvent =
-		*BestEvent;
-
-	OutOccurrenceTime =
-		FDiurnalDateTime::FromTotalHours(
-			BestOccurrenceHours);
-
+	OutEvent = *BestEvent;
+	OutOccurrenceTime = FDiurnalDateTime::FromTotalHours(BestOccurrenceHours);
 	return true;
 }
 
@@ -247,29 +291,40 @@ bool UDiurnalCycleSubsystem::TryGetNextOccurrence(
 	const FGameplayTag EventTag,
 	FDiurnalDateTime& OutOccurrenceTime) const
 {
-	FDiurnalTimeEvent TimeEvent;
-
-	if (!TryGetTimeEvent(
-			EventTag,
-			TimeEvent))
+	OutOccurrenceTime = {};
+	double BestOccurrenceHours = TNumericLimits<double>::Max();
+	bool bFound = false;
+	for (const FDiurnalResolvedTimeEvent& Match : FindTimeEventsByTag(EventTag))
+	{
+		double OccurrenceHours = 0.0;
+		if (TryGetNextOccurrenceHours(Match.Event, TotalGameHours, OccurrenceHours)
+			&& OccurrenceHours < BestOccurrenceHours)
+		{
+			BestOccurrenceHours = OccurrenceHours;
+			bFound = true;
+		}
+	}
+	if (!bFound)
 	{
 		return false;
 	}
+	OutOccurrenceTime = FDiurnalDateTime::FromTotalHours(BestOccurrenceHours);
+	return true;
+}
 
+bool UDiurnalCycleSubsystem::TryGetNextOccurrence(
+	const FDiurnalScheduleEntryReference& Reference,
+	FDiurnalDateTime& OutOccurrenceTime) const
+{
+	OutOccurrenceTime = {};
+	FDiurnalResolvedTimeEvent Resolved;
 	double OccurrenceHours = 0.0;
-
-	if (!TryGetNextOccurrenceHours(
-			TimeEvent,
-			TotalGameHours,
-			OccurrenceHours))
+	if (!TryGetTimeEvent(Reference, Resolved)
+		|| !TryGetNextOccurrenceHours(Resolved.Event, TotalGameHours, OccurrenceHours))
 	{
 		return false;
 	}
-
-	OutOccurrenceTime =
-		FDiurnalDateTime::FromTotalHours(
-			OccurrenceHours);
-
+	OutOccurrenceTime = FDiurnalDateTime::FromTotalHours(OccurrenceHours);
 	return true;
 }
 
@@ -278,63 +333,39 @@ bool UDiurnalCycleSubsystem::TryGetNextOccurrenceHours(
 	const double FromHours,
 	double& OutOccurrenceHours) const
 {
-	checkf(
-		TimeEvent.IsValid(),
-		TEXT(
-			"TryGetNextOccurrenceHours requires a valid event."));
+	OutOccurrenceHours = 0.0;
+	checkf(TimeEvent.IsValid(), TEXT("TryGetNextOccurrenceHours requires a valid event."));
+	checkf(DiurnalCycle::IsValidTotalGameHours(FromHours), TEXT("TryGetNextOccurrenceHours requires valid source hours."));
 
-	checkf(
-		DiurnalCycle::IsValidTotalGameHours(
-			FromHours),
-		TEXT(
-			"TryGetNextOccurrenceHours requires valid source hours."));
-
-	const double TimeOfDayHours =
-		TimeEvent.TimeOfDay.ToHours();
-
+	const double TimeOfDayHours = TimeEvent.TimeOfDay.ToHours();
 	double CandidateHours = 0.0;
-
-	if (TimeEvent.bDatedEvent)
+	const FDiurnalRecurrence Recurrence = TimeEvent.Recurrence;
+	if (Recurrence.Mode == EDiurnalRecurrenceMode::Once)
 	{
-		CandidateHours =
-			static_cast<double>(
-				TimeEvent.EventDay - 1)
-				* DiurnalCycle::GHoursPerDay
-			+ TimeOfDayHours;
+		CandidateHours = static_cast<double>(Recurrence.AnchorDay - 1)
+			* DiurnalCycle::GHoursPerDay + TimeOfDayHours;
 	}
 	else
 	{
-		const int64 CurrentDayIndex =
-			static_cast<int64>(
-				FMath::Floor(
-					FromHours
-						/ DiurnalCycle::GHoursPerDay));
-
-		CandidateHours =
-			static_cast<double>(
-				CurrentDayIndex)
-				* DiurnalCycle::GHoursPerDay
-			+ TimeOfDayHours;
-
-		if (CandidateHours
-			<= FromHours)
+		const int64 CurrentDay = static_cast<int64>(
+			FMath::Floor(FromHours / DiurnalCycle::GHoursPerDay)) + 1;
+		int64 CandidateDay = FMath::Max<int64>(Recurrence.AnchorDay, CurrentDay);
+		const int64 Offset = (CandidateDay - Recurrence.AnchorDay) % Recurrence.IntervalDays;
+		if (Offset != 0) CandidateDay += Recurrence.IntervalDays - Offset;
+		CandidateHours = static_cast<double>(CandidateDay - 1)
+			* DiurnalCycle::GHoursPerDay + TimeOfDayHours;
+		if (CandidateHours <= FromHours)
 		{
-			CandidateHours +=
-				DiurnalCycle::GHoursPerDay;
+			CandidateHours += static_cast<double>(Recurrence.IntervalDays) * DiurnalCycle::GHoursPerDay;
 		}
 	}
 
-	if (CandidateHours
-			<= FromHours
-		|| !DiurnalCycle::IsValidTotalGameHours(
-			CandidateHours))
+	if (CandidateHours <= FromHours
+		|| !DiurnalCycle::IsValidTotalGameHours(CandidateHours))
 	{
 		return false;
 	}
-
-	OutOccurrenceHours =
-		CandidateHours;
-
+	OutOccurrenceHours = CandidateHours;
 	return true;
 }
 
@@ -345,12 +376,9 @@ bool UDiurnalCycleSubsystem::TryGetNextOccurrenceHours(
 void UDiurnalCycleSubsystem::SortTimeEvents()
 {
 	TimeEvents.StableSort(
-		[](
-			const FDiurnalTimeEvent& Left,
-			const FDiurnalTimeEvent& Right)
+		[](const FDiurnalTimeEvent& Left, const FDiurnalTimeEvent& Right)
 		{
-			return Left.TimeOfDay
-				< Right.TimeOfDay;
+			return Left.TimeOfDay < Right.TimeOfDay;
 		});
 }
 
@@ -358,120 +386,75 @@ void UDiurnalCycleSubsystem::DispatchCrossedTimeEvents(
 	const double PreviousHours,
 	const double CurrentHours)
 {
-	checkf(
-		CurrentHours >= PreviousHours,
-		TEXT(
-			"DispatchCrossedTimeEvents requires forward time."));
-
-	if (TimeEvents.IsEmpty()
-		|| CurrentHours == PreviousHours)
+	checkf(CurrentHours >= PreviousHours, TEXT("DispatchCrossedTimeEvents requires forward time."));
+	if (ResolvedTimeEvents.IsEmpty() || CurrentHours == PreviousHours)
 	{
 		return;
 	}
 
 	struct FPendingDiurnalOccurrence
 	{
-		FDiurnalTimeEvent Event;
-		FDiurnalDateTime OccurrenceTime;
+		FDiurnalResolvedTimeEvent Resolved;
+		FDiurnalEventOccurrenceHandle Handle;
 	};
+	TArray<FPendingDiurnalOccurrence> PendingOccurrences;
+	const int64 FirstDayIndex = static_cast<int64>(FMath::Floor(PreviousHours / DiurnalCycle::GHoursPerDay));
+	const int64 LastDayIndex = static_cast<int64>(FMath::Floor(CurrentHours / DiurnalCycle::GHoursPerDay));
 
-	TArray<FPendingDiurnalOccurrence>
-		PendingOccurrences;
-
-	const int64 FirstDayIndex =
-		static_cast<int64>(
-			FMath::Floor(
-				PreviousHours
-					/ DiurnalCycle::GHoursPerDay));
-
-	const int64 LastDayIndex =
-		static_cast<int64>(
-			FMath::Floor(
-				CurrentHours
-					/ DiurnalCycle::GHoursPerDay));
-
-	for (int64 DayIndex = FirstDayIndex;
-		 DayIndex <= LastDayIndex;
-		 ++DayIndex)
+	for (int64 DayIndex = FirstDayIndex; DayIndex <= LastDayIndex; ++DayIndex)
 	{
-		const int32 OccurrenceDay =
-			static_cast<int32>(
-				DayIndex + 1);
-
-		const double DayStartHours =
-			static_cast<double>(
-				DayIndex)
-				* DiurnalCycle::GHoursPerDay;
-
-		for (const FDiurnalTimeEvent& Event :
-			 TimeEvents)
+		const int32 OccurrenceDay = static_cast<int32>(DayIndex + 1);
+		const double DayStartHours = static_cast<double>(DayIndex) * DiurnalCycle::GHoursPerDay;
+		for (const FDiurnalResolvedTimeEvent& Resolved : ResolvedTimeEvents)
 		{
-			if (!Event.OccursOnDay(
-					OccurrenceDay))
+			const FDiurnalTimeEvent& Event = Resolved.Event;
+			if (!Event.OccursOnDay(OccurrenceDay))
+			{
+				continue;
+			}
+			const double OccurrenceHours = DayStartHours + Event.TimeOfDay.ToHours();
+			if (OccurrenceHours <= PreviousHours || OccurrenceHours > CurrentHours)
 			{
 				continue;
 			}
 
-			const double OccurrenceHours =
-				DayStartHours
-				+ Event.TimeOfDay.ToHours();
-
-			if (OccurrenceHours
-					<= PreviousHours
-				|| OccurrenceHours
-					> CurrentHours)
-			{
-				continue;
-			}
-
-			PendingOccurrences.Add(
-				{
-					Event,
-					FDiurnalDateTime(
-						OccurrenceDay,
-						Event.TimeOfDay)
-				});
+			FPendingDiurnalOccurrence& Pending = PendingOccurrences.AddDefaulted_GetRef();
+			Pending.Resolved = Resolved;
+			Pending.Handle.Entry = Resolved.GetEntryReference();
+			Pending.Handle.OccurrenceTime = FDiurnalDateTime(OccurrenceDay, Event.TimeOfDay);
+			Pending.Handle.OccurrenceId = FGuid::NewGuid();
 		}
 	}
 
-	bool bFinalGateStateApplied =
-		false;
-
-	const FDiurnalDateTime FinalDateTime =
-		GetDateTime();
-
-	/*
-	 * The occurrence batch is complete before callbacks begin. Schedule
-	 * mutations performed by listeners therefore affect future advancement
-	 * without invalidating this dispatch.
-	 */
-	for (const FPendingDiurnalOccurrence& Pending :
-		 PendingOccurrences)
+	bool bFinalGateStateApplied = false;
+	const FDiurnalDateTime FinalDateTime = GetDateTime();
+	for (const FPendingDiurnalOccurrence& Pending : PendingOccurrences)
 	{
-		if (!bFinalGateStateApplied
-			&& Pending.OccurrenceTime
-				== FinalDateTime)
+		if (!bFinalGateStateApplied && Pending.Handle.OccurrenceTime == FinalDateTime)
 		{
-			const TArray<FGameplayTag>
-				ScheduledGates =
-					GetScheduledTimeGatesAt(
-						FinalDateTime);
-
+			TArray<FDiurnalEventOccurrenceHandle> ScheduledGates;
+			for (const FPendingDiurnalOccurrence& Candidate : PendingOccurrences)
+			{
+				if (Candidate.Handle.OccurrenceTime == FinalDateTime
+					&& Candidate.Resolved.Event.IsBlocking())
+				{
+					ScheduledGates.Add(Candidate.Handle);
+				}
+			}
 			if (!ScheduledGates.IsEmpty())
 			{
-				SetActiveTimeGates(
-					ScheduledGates,
-					FinalDateTime,
-					true);
+				SetActiveTimeGates(ScheduledGates, FinalDateTime, true);
 			}
-
-			bFinalGateStateApplied =
-				true;
+			bFinalGateStateApplied = true;
 		}
 
+		TimeEventOccurrenceEvent.Broadcast(
+			Pending.Handle,
+			Pending.Resolved.Event,
+			Pending.Handle.OccurrenceTime);
 		TimeEventTriggeredEvent.Broadcast(
-			Pending.Event,
-			Pending.OccurrenceTime);
+			Pending.Resolved.Event,
+			Pending.Handle.OccurrenceTime);
 	}
 }
 

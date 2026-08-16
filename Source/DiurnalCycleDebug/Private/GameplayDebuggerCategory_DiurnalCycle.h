@@ -93,10 +93,11 @@ private:
 		double EffectiveRealSecondsPerGameHour = 0.0;
 
 		FString WorldName;
+		FString PauseReason;
 
 		int32 EventCount = 0;
-		int32 DailyEventCount = 0;
-		int32 DatedEventCount = 0;
+		int32 RepeatingEventCount = 0;
+		int32 OnceEventCount = 0;
 		int32 BlockingEventCount = 0;
 
 		int32 TimeRangeCount = 0;
@@ -104,12 +105,12 @@ private:
 		TArray<FName> ActiveTimeGates;
 
 		bool bHasNextEvent = false;
-		bool bNextEventDated = false;
+		bool bNextEventOnce = false;
 		bool bNextEventBlocking = false;
 
 		FName NextEventName = NAME_None;
 
-		int32 NextEventDay = 1;
+		int32 NextOccurrenceDay = 1;
 		int32 NextEventHour = 0;
 		int32 NextEventMinute = 0;
 		int32 NextEventSecond = 0;

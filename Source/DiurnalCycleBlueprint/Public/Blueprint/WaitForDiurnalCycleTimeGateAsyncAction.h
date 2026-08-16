@@ -23,13 +23,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FGameplayTag, GateTag);
 
 /**
- * Waits for one exact time gate to become active or to be released.
+ * Waits for semantic time-gate tag activity.
  *
  * Activation waits complete immediately when the requested gate is already
  * active. Otherwise the target must identify a blocking event with a reachable
  * future occurrence.
  *
- * Release waits can be started only while the requested gate is active.
+ * Release waits can be started only while one or more matching gates are
+ * active and complete after all matching occurrences active at start release.
  *
  * The action is session-scoped and is not serialized into save games.
  */
@@ -39,7 +40,7 @@ UCLASS(
 		ExposedAsyncProxy = "AsyncAction",
 		HideThen
 	))
-class DIURNALCYCLERUNTIME_API
+class DIURNALCYCLEBLUEPRINT_API
 UWaitForDiurnalCycleTimeGateAsyncAction final
 	: public UCancellableAsyncAction
 {
@@ -137,7 +138,7 @@ private:
 		const FDiurnalDateTime& ActivationTime);
 
 	void HandleTimeGateReleased(
-		FGameplayTag GateTag,
+		const FDiurnalEventOccurrenceHandle& Occurrence,
 		const FDiurnalDateTime& ReleaseTime);
 
 	void HandleTimeEventRemoved(
@@ -155,6 +156,7 @@ private:
 
 	TWeakObjectPtr<UObject> WorldContextObject;
 	FGameplayTag TargetGateTag;
+	TSet<FGuid> TargetOccurrenceIds;
 
 	EWaitMode Mode =
 		EWaitMode::Activation;

@@ -9,6 +9,7 @@
 #include "DiurnalCycleSubsystem.generated.h"
 
 class UWorld;
+class UDiurnalSchedule;
 
 #pragma region NativeDelegates
 
@@ -33,6 +34,13 @@ DECLARE_MULTICAST_DELEGATE_OneParam(
  */
 DECLARE_MULTICAST_DELEGATE_TwoParams(
 	FOnDiurnalTimeEventTriggered,
+	const FDiurnalTimeEvent&,
+	const FDiurnalDateTime& /* OccurrenceTime */);
+
+/** Identity-rich counterpart used when one exact occurrence matters. */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnDiurnalTimeEventOccurrence,
+	const FDiurnalEventOccurrenceHandle&,
 	const FDiurnalTimeEvent&,
 	const FDiurnalDateTime& /* OccurrenceTime */);
 
@@ -89,6 +97,20 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(
 	const FDiurnalTimeRange&,
 	const FDiurnalDateTime& /* CurrentDateTime */);
 
+/** Identity-rich time-range entry transition. */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnDiurnalTimeRangeEntryEntered,
+	const FDiurnalScheduleEntryReference&,
+	const FDiurnalTimeRange&,
+	const FDiurnalDateTime& /* CurrentDateTime */);
+
+/** Identity-rich time-range exit transition. */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FOnDiurnalTimeRangeEntryExited,
+	const FDiurnalScheduleEntryReference&,
+	const FDiurnalTimeRange&,
+	const FDiurnalDateTime& /* CurrentDateTime */);
+
 /**
  * Broadcast when a blocking event activates a time gate.
  *
@@ -100,14 +122,16 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(
 	const FDiurnalTimeEvent&,
 	const FDiurnalDateTime& /* ActivationTime */);
 
-/**
- * Broadcast when an active time gate is released.
- *
- * The clock remains blocked while any other active gate remains unresolved.
- */
+/** Exact blocking occurrence activation. */
 DECLARE_MULTICAST_DELEGATE_TwoParams(
-	FOnDiurnalTimeGateReleased,
-	FGameplayTag /* GateTag */,
+	FOnDiurnalTimeGateOccurrenceActivated,
+	const FDiurnalEventOccurrenceHandle&,
+	const FDiurnalTimeEvent&);
+
+/** Exact blocking occurrence release. */
+DECLARE_MULTICAST_DELEGATE_TwoParams(
+	FOnDiurnalTimeGateOccurrenceReleased,
+	const FDiurnalEventOccurrenceHandle&,
 	const FDiurnalDateTime& /* ReleaseTime */);
 
 #pragma endregion
@@ -204,7 +228,9 @@ public:
 	 * Ordinary events crossed in (previous time, actual final time] are emitted
 	 * chronologically. When a blocking event is encountered, advancement clamps
 	 * to its timestamp, every gate at that timestamp becomes active, and no
-	 * later time is processed.
+	 * later time is processed. An advance beyond the maximum representable date
+	 * is rejected, pauses the clock, and emits one diagnostic warning until the
+	 * clock is explicitly resumed or moved.
 	 *
 	 * @return True when GameHours was valid and advancement was accepted.
 	 */
@@ -262,6 +288,38 @@ public:
 
 #pragma endregion
 
+#pragma region ScheduleLayers
+
+	/** Atomically replaces the ordered authored schedule layers. May synchronously load uncached assets. */
+	bool TrySetActiveSchedules(
+		const TArray<TSoftObjectPtr<UDiurnalSchedule>>& NewSchedules);
+
+	/** Adds one authored layer after the currently active layers. */
+	bool TryActivateSchedule(UDiurnalSchedule* Schedule);
+
+	/** Removes one authored layer without changing clock time. */
+	bool DeactivateSchedule(UDiurnalSchedule* Schedule);
+
+	TConstArrayView<TSoftObjectPtr<UDiurnalSchedule>> GetActiveSchedules() const
+	{
+		return ActiveScheduleReferences;
+	}
+
+	/** Human-readable automatic pause reason, empty for an explicit/user pause. */
+	const FString& GetPauseReason() const { return PauseReason; }
+
+	TConstArrayView<FDiurnalResolvedTimeEvent> GetResolvedTimeEvents() const
+	{
+		return ResolvedTimeEvents;
+	}
+
+	TConstArrayView<FDiurnalResolvedTimeRange> GetResolvedTimeRanges() const
+	{
+		return ResolvedTimeRanges;
+	}
+
+#pragma endregion
+
 #pragma region EventSchedule
 
 	/**
@@ -276,23 +334,27 @@ public:
 		return TimeEvents;
 	}
 
-	/**
-	 * Finds the event identified by EventTag.
-	 *
-	 * @return True when a matching runtime event exists.
-	 */
-	bool TryGetTimeEvent(
-		FGameplayTag EventTag,
-		FDiurnalTimeEvent& OutTimeEvent) const;
-
-	/** Returns whether the runtime event schedule contains EventTag. */
+	/** Returns whether any runtime event contains EventTag. */
 	bool HasTimeEvent(
 		FGameplayTag EventTag) const;
+
+	/** Returns every event containing EventTag in runtime schedule order. */
+	TArray<FDiurnalResolvedTimeEvent> FindTimeEventsByTag(
+		FGameplayTag EventTag) const;
+
+	/** Returns every event whose optional tags satisfy TagQuery. */
+	TArray<FDiurnalResolvedTimeEvent> FindTimeEventsByTagQuery(
+		const FGameplayTagQuery& TagQuery) const;
+
+	/** Resolves one exact authored/runtime event reference. */
+	bool TryGetTimeEvent(
+		const FDiurnalScheduleEntryReference& Reference,
+		FDiurnalResolvedTimeEvent& OutTimeEvent) const;
 
 	/**
 	 * Adds a validated event to the runtime schedule.
 	 *
-	 * Event tags must be valid and unique. Ordinary events are never fired
+	 * Tags are optional and may be shared. Ordinary events are never fired
 	 * retrospectively when added. A blocking event added exactly at the current
 	 * clock timestamp immediately becomes an active gate.
 	 *
@@ -301,20 +363,28 @@ public:
 	bool TryAddTimeEvent(
 		const FDiurnalTimeEvent& TimeEvent);
 
-	/**
-	 * Removes the event identified by EventTag.
-	 *
-	 * Removing an active blocking event also releases its gate.
-	 *
-	 * @return True when a matching event was found and removed.
-	 */
+	/** Adds an event and returns its exact runtime reference. */
+	bool TryAddTimeEvent(
+		const FDiurnalTimeEvent& TimeEvent,
+		FDiurnalScheduleEntryReference& OutReference);
+
+	/** Removes exactly one event by stable reference. */
 	bool RemoveTimeEvent(
-		FGameplayTag EventTag);
+		const FDiurnalScheduleEntryReference& Reference);
+
+	/** Removes every event containing EventTag and returns the removed count. */
+	int32 RemoveTimeEventsByTag(FGameplayTag EventTag);
+
+	/** Re-enables exactly one authored event. */
+	bool ReenableTimeEvent(const FDiurnalScheduleEntryReference& Reference);
+
+	/** Re-enables every disabled event containing EventTag. */
+	int32 ReenableTimeEventsByTag(FGameplayTag EventTag);
 
 	/**
 	 * Finds the next scheduled event occurrence strictly after the current time.
 	 *
-	 * Daily events resolve to their next daily occurrence. Dated events are
+	 * Repeating events resolve to their next recurrence. One-off events are
 	 * considered only while their configured occurrence remains in the future.
 	 * Blocking and ordinary events are queried uniformly.
 	 *
@@ -325,13 +395,18 @@ public:
 		FDiurnalDateTime& OutOccurrenceTime) const;
 
 	/**
-	 * Finds the next occurrence of the event identified by EventTag strictly
-	 * after the current time.
+	 * Finds the earliest next occurrence among all events containing EventTag,
+	 * strictly after the current time.
 	 *
 	 * @return True when EventTag exists and has a future occurrence.
 	 */
 	bool TryGetNextOccurrence(
 		FGameplayTag EventTag,
+		FDiurnalDateTime& OutOccurrenceTime) const;
+
+	/** Finds the next occurrence of one exact event reference. */
+	bool TryGetNextOccurrence(
+		const FDiurnalScheduleEntryReference& Reference,
 		FDiurnalDateTime& OutOccurrenceTime) const;
 
 #pragma endregion
@@ -349,23 +424,24 @@ public:
 		return TimeRanges;
 	}
 
-	/**
-	 * Finds the range identified by RangeTag.
-	 *
-	 * @return True when a matching runtime range exists.
-	 */
-	bool TryGetTimeRange(
-		FGameplayTag RangeTag,
-		FDiurnalTimeRange& OutTimeRange) const;
-
 	/** Returns whether the runtime time-range schedule contains RangeTag. */
 	bool HasTimeRange(
 		FGameplayTag RangeTag) const;
 
+	TArray<FDiurnalResolvedTimeRange> FindTimeRangesByTag(
+		FGameplayTag RangeTag) const;
+
+	TArray<FDiurnalResolvedTimeRange> FindTimeRangesByTagQuery(
+		const FGameplayTagQuery& TagQuery) const;
+
+	bool TryGetTimeRange(
+		const FDiurnalScheduleEntryReference& Reference,
+		FDiurnalResolvedTimeRange& OutTimeRange) const;
+
 	/**
 	 * Adds a validated range to the runtime schedule.
 	 *
-	 * Range tags must be valid and unique. If the range contains the current
+	 * Tags are optional and may be shared. If the range contains the current
 	 * time, it becomes active immediately.
 	 *
 	 * @return True when TimeRange was valid and added.
@@ -373,17 +449,19 @@ public:
 	bool TryAddTimeRange(
 		const FDiurnalTimeRange& TimeRange);
 
-	/**
-	 * Removes the range identified by RangeTag.
-	 *
-	 * Removing a currently active range emits its exit notification.
-	 *
-	 * @return True when a matching range was found and removed.
-	 */
-	bool RemoveTimeRange(
-		FGameplayTag RangeTag);
+	bool TryAddTimeRange(
+		const FDiurnalTimeRange& TimeRange,
+		FDiurnalScheduleEntryReference& OutReference);
 
-	/** Returns whether TimeOfDay lies inside the range identified by RangeTag. */
+	bool RemoveTimeRange(const FDiurnalScheduleEntryReference& Reference);
+
+	int32 RemoveTimeRangesByTag(FGameplayTag RangeTag);
+
+	bool ReenableTimeRange(const FDiurnalScheduleEntryReference& Reference);
+
+	int32 ReenableTimeRangesByTag(FGameplayTag RangeTag);
+
+	/** Returns whether TimeOfDay lies inside any range containing RangeTag. */
 	bool IsTimeOfDayInRange(
 		FGameplayTag RangeTag,
 		const FDiurnalTimeOfDay& TimeOfDay) const;
@@ -393,11 +471,13 @@ public:
 		FGameplayTag RangeTag) const;
 
 	/**
-	 * Returns the tags of every range active at the current clock time.
-	 *
-	 * Overlapping ranges are returned independently in runtime schedule order.
+	 * Returns the unique aggregate tags contributed by active ranges.
+	 * Exact contributions remain available through GetActiveTimeRangeEntries().
 	 */
-	TArray<FGameplayTag> GetActiveTimeRanges() const;
+	TArray<FGameplayTag> GetActiveTimeRangeTags() const;
+
+	/** Exact references for every currently active range contribution. */
+	TArray<FDiurnalScheduleEntryReference> GetActiveTimeRangeEntries() const;
 
 #pragma endregion
 
@@ -406,33 +486,33 @@ public:
 	/** Returns whether one or more time gates currently block advancement. */
 	bool IsBlockedByTimeGate() const
 	{
-		return !ActiveTimeGates.IsEmpty();
+		return !ActiveTimeGateOccurrences.IsEmpty();
 	}
 
 	/**
-	 * Returns every currently active time-gate tag.
-	 *
-	 * Multiple gates may be active simultaneously. The returned view remains
-	 * valid only until gate state changes.
+	 * Returns the unique aggregate tags contributed by active gate occurrences.
+	 * Tagless gates still block and are visible through exact occurrence handles.
 	 */
-	TConstArrayView<FGameplayTag> GetActiveTimeGates() const
+	TArray<FGameplayTag> GetActiveTimeGateTags() const;
+
+	/** Exact blocking occurrences currently holding the clock. */
+	TConstArrayView<FDiurnalEventOccurrenceHandle> GetActiveTimeGateOccurrences() const
 	{
-		return ActiveTimeGates;
+		return ActiveTimeGateOccurrences;
 	}
 
 	/** Returns whether GateTag is one of the currently active time gates. */
 	bool IsTimeGateActive(
 		FGameplayTag GateTag) const;
 
-	/**
-	 * Releases one active time gate.
-	 *
-	 * The clock remains blocked while any other active gate remains unresolved.
-	 *
-	 * @return True when GateTag was active and released.
-	 */
-	bool ReleaseTimeGate(
-		FGameplayTag GateTag);
+	bool IsTimeGateOccurrenceActive(
+		const FDiurnalEventOccurrenceHandle& Occurrence) const;
+
+	/** Releases one exact blocking occurrence. */
+	bool ReleaseTimeGate(const FDiurnalEventOccurrenceHandle& Occurrence);
+
+	/** Releases every active gate whose event contains GateTag. */
+	int32 ReleaseTimeGatesByTag(FGameplayTag GateTag);
 
 	/**
 	 * Releases every currently active time gate.
@@ -450,10 +530,16 @@ public:
 	/**
 	 * Captures the mutable runtime clock state.
 	 *
-	 * The explicit pause state and configured base clock rate are intentionally
-	 * not persisted.
+	 * This aggregate includes the current clock, explicit pause state, configured
+	 * base clock rate, authored schedule layers, runtime overlays, disabled-entry
+	 * overlays, and active exact gate occurrences.
 	 */
 	FDiurnalCycleState CaptureState() const;
+
+	/** Captures time, scale, base clock rate, and pause state. */
+	FDiurnalClockState CaptureClockState() const;
+
+	FDiurnalScheduleRuntimeState CaptureScheduleState() const;
 
 	/**
 	 * Atomically restores a previously captured runtime state.
@@ -462,7 +548,7 @@ public:
 	 * Ordinary scheduled occurrences are not replayed.
 	 *
 	 * Runtime ranges are reconciled against the restored clock position. Active
-	 * gates are restored exactly from State.ActiveTimeGates rather than inferred
+	 * gates are restored exactly from State.ActiveTimeGateOccurrences rather than inferred
 	 * solely from the timestamp, preserving whether a gate at that timestamp had
 	 * already been released when the save was captured.
 	 *
@@ -470,6 +556,10 @@ public:
 	 */
 	bool TryRestoreState(
 		const FDiurnalCycleState& State);
+
+	bool TryRestoreClockState(const FDiurnalClockState& State);
+
+	bool TryRestoreScheduleState(const FDiurnalScheduleRuntimeState& State);
 
 #pragma endregion
 
@@ -483,6 +573,11 @@ public:
 	FOnDiurnalTimeEventTriggered& OnTimeEventTriggered()
 	{
 		return TimeEventTriggeredEvent;
+	}
+
+	FOnDiurnalTimeEventOccurrence& OnTimeEventOccurrence()
+	{
+		return TimeEventOccurrenceEvent;
 	}
 
 	FOnDiurnalTimeEventAdded& OnTimeEventAdded()
@@ -525,14 +620,29 @@ public:
 		return TimeRangeExitedEvent;
 	}
 
+	FOnDiurnalTimeRangeEntryEntered& OnTimeRangeEntryEntered()
+	{
+		return TimeRangeEntryEnteredEvent;
+	}
+
+	FOnDiurnalTimeRangeEntryExited& OnTimeRangeEntryExited()
+	{
+		return TimeRangeEntryExitedEvent;
+	}
+
 	FOnDiurnalTimeGateActivated& OnTimeGateActivated()
 	{
 		return TimeGateActivatedEvent;
 	}
 
-	FOnDiurnalTimeGateReleased& OnTimeGateReleased()
+	FOnDiurnalTimeGateOccurrenceActivated& OnTimeGateOccurrenceActivated()
 	{
-		return TimeGateReleasedEvent;
+		return TimeGateOccurrenceActivatedEvent;
+	}
+
+	FOnDiurnalTimeGateOccurrenceReleased& OnTimeGateOccurrenceReleased()
+	{
+		return TimeGateOccurrenceReleasedEvent;
 	}
 
 #pragma endregion
@@ -559,6 +669,34 @@ private:
 #pragma region InitializationAndClock
 
 	void ApplySettings();
+
+	bool CompileScheduleLayers(
+		const TArray<TSoftObjectPtr<UDiurnalSchedule>>& ScheduleReferences,
+		const TArray<FDiurnalTimeEvent>& InRuntimeEvents,
+		const TArray<FDiurnalTimeRange>& InRuntimeRanges,
+		const TArray<FDiurnalScheduleEntryReference>& InDisabledEvents,
+		const TArray<FDiurnalScheduleEntryReference>& InDisabledRanges,
+		TArray<FDiurnalResolvedTimeEvent>& OutEvents,
+		TArray<FDiurnalResolvedTimeRange>& OutRanges,
+		TArray<TObjectPtr<UDiurnalSchedule>>& OutLoadedSchedules) const;
+
+	void ApplyCompiledSchedule(
+		TArray<FDiurnalResolvedTimeEvent>&& NewEvents,
+		TArray<FDiurnalResolvedTimeRange>&& NewRanges,
+		TArray<TObjectPtr<UDiurnalSchedule>>&& NewLoadedSchedules,
+		bool bBroadcastTransitions);
+
+	bool RebuildCompiledSchedule(bool bBroadcastTransitions);
+
+	bool PrepareScheduleStateForRestore(
+		const FDiurnalScheduleRuntimeState& State,
+		double TargetHours,
+		TArray<FDiurnalScheduleEntryReference>& OutDisabledEvents,
+		TArray<FDiurnalScheduleEntryReference>& OutDisabledRanges,
+		TArray<FDiurnalEventOccurrenceHandle>& OutActiveGates,
+		TArray<FDiurnalResolvedTimeEvent>& OutEvents,
+		TArray<FDiurnalResolvedTimeRange>& OutRanges,
+		TArray<TObjectPtr<UDiurnalSchedule>>& OutLoadedSchedules) const;
 
 	/** Returns whether the current world permits automatic advancement. */
 	bool ShouldAdvanceInCurrentWorld() const;
@@ -596,13 +734,13 @@ private:
 
 #pragma region TimeRangeProcessing
 
-	TArray<FDiurnalTimeRange>
+	TArray<FDiurnalResolvedTimeRange>
 	GetActiveTimeRangeDefinitions(
-		const FDiurnalTimeOfDay& TimeOfDay) const;
+		const FDiurnalDateTime& DateTime) const;
 
 	void BroadcastTimeRangeTransitions(
-		const TArray<FDiurnalTimeRange>& PreviousActiveRanges,
-		const TArray<FDiurnalTimeRange>& CurrentActiveRanges,
+		const TArray<FDiurnalResolvedTimeRange>& PreviousActiveRanges,
+		const TArray<FDiurnalResolvedTimeRange>& CurrentActiveRanges,
 		const FDiurnalDateTime& CurrentDateTime);
 
 #pragma endregion
@@ -610,11 +748,10 @@ private:
 #pragma region TimeGateProcessing
 
 	/**
-	 * Returns every blocking event tag scheduled exactly at DateTime.
-	 *
+	 * Returns exact blocking occurrence handles scheduled at DateTime.
 	 * Returned order follows the runtime event schedule.
 	 */
-	TArray<FGameplayTag> GetScheduledTimeGatesAt(
+	TArray<FDiurnalEventOccurrenceHandle> GetScheduledTimeGatesAt(
 		const FDiurnalDateTime& DateTime) const;
 
 	/**
@@ -622,7 +759,7 @@ private:
 	 * release/activation transitions.
 	 */
 	void SetActiveTimeGates(
-		const TArray<FGameplayTag>& NewActiveTimeGates,
+		const TArray<FDiurnalEventOccurrenceHandle>& NewActiveTimeGates,
 		const FDiurnalDateTime& TransitionTime,
 		bool bBroadcastTransitions);
 
@@ -644,6 +781,10 @@ private:
 	/** Whether automatic advancement is explicitly paused. */
 	bool bPaused = false;
 
+	/** Non-empty when runtime safety paused the clock. */
+	FString PauseReason;
+	bool bMaximumDateWarningEmitted = false;
+
 	/** Last whole game second reported through TimeChangedEvent. */
 	int64 LastBroadcastGameSecond =
 		INDEX_NONE;
@@ -654,8 +795,22 @@ private:
 	/** Validated mutable runtime time-range schedule. */
 	TArray<FDiurnalTimeRange> TimeRanges;
 
-	/** Unique tags of every time gate currently blocking advancement. */
-	TArray<FGameplayTag> ActiveTimeGates;
+	/** Exact event occurrences currently blocking advancement. */
+	TArray<FDiurnalEventOccurrenceHandle> ActiveTimeGateOccurrences;
+
+	/** Ordered identities and strong references for immutable authored layers. */
+	TArray<TSoftObjectPtr<UDiurnalSchedule>> ActiveScheduleReferences;
+	TArray<TObjectPtr<UDiurnalSchedule>> ActiveScheduleAssets;
+
+	/** Mutable overlay, kept separate from authored schedule assets. */
+	TArray<FDiurnalTimeEvent> RuntimeTimeEvents;
+	TArray<FDiurnalTimeRange> RuntimeTimeRanges;
+	TArray<FDiurnalScheduleEntryReference> DisabledEventEntries;
+	TArray<FDiurnalScheduleEntryReference> DisabledRangeEntries;
+
+	/** Provenance-preserving compiled schedule corresponding to flat arrays. */
+	TArray<FDiurnalResolvedTimeEvent> ResolvedTimeEvents;
+	TArray<FDiurnalResolvedTimeRange> ResolvedTimeRanges;
 
 #pragma endregion
 
@@ -663,6 +818,7 @@ private:
 
 	FOnDiurnalTimeChanged TimeChangedEvent;
 	FOnDiurnalTimeEventTriggered TimeEventTriggeredEvent;
+	FOnDiurnalTimeEventOccurrence TimeEventOccurrenceEvent;
 	FOnDiurnalTimeEventAdded TimeEventAddedEvent;
 	FOnDiurnalTimeEventRemoved TimeEventRemovedEvent;
 
@@ -673,9 +829,12 @@ private:
 	FOnDiurnalTimeRangeRemoved TimeRangeRemovedEvent;
 	FOnDiurnalTimeRangeEntered TimeRangeEnteredEvent;
 	FOnDiurnalTimeRangeExited TimeRangeExitedEvent;
+	FOnDiurnalTimeRangeEntryEntered TimeRangeEntryEnteredEvent;
+	FOnDiurnalTimeRangeEntryExited TimeRangeEntryExitedEvent;
 
 	FOnDiurnalTimeGateActivated TimeGateActivatedEvent;
-	FOnDiurnalTimeGateReleased TimeGateReleasedEvent;
+	FOnDiurnalTimeGateOccurrenceActivated TimeGateOccurrenceActivatedEvent;
+	FOnDiurnalTimeGateOccurrenceReleased TimeGateOccurrenceReleasedEvent;
 
 #pragma endregion
 };

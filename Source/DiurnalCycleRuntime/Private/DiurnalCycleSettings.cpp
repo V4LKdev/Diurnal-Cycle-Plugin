@@ -1,30 +1,35 @@
 ﻿
 #include "DiurnalCycleSettings.h"
-#include "DiurnalCycleGameplayTags.h"
+#include "DiurnalSchedule.h"
 
-UDiurnalCycleSettings::UDiurnalCycleSettings()
+bool DiurnalCycle::FindDuplicateScheduleReference(
+	const TArray<TSoftObjectPtr<UDiurnalSchedule>>& Schedules,
+	int32& OutFirstIndex,
+	int32& OutDuplicateIndex,
+	FSoftObjectPath& OutPath)
 {
-	// Add Array Defaults
-	TimeEvents.Emplace(
-		DiurnalCycle::TimeEvent::DailyExample,
-		FDiurnalTimeOfDay(6));
+	OutFirstIndex = INDEX_NONE;
+	OutDuplicateIndex = INDEX_NONE;
+	OutPath.Reset();
 
-	TimeEvents.Emplace(
-		DiurnalCycle::TimeEvent::DatedExample,
-		FDiurnalTimeOfDay(18),
-		true,
-		2);
-
-	TimeRanges.Emplace(
-		DiurnalCycle::TimeRange::DayTime,
-		FDiurnalTimeOfDay(6),
-		FDiurnalTimeOfDay(18));
-
-	TimeRanges.Emplace(
-		DiurnalCycle::TimeRange::NightTime,
-		FDiurnalTimeOfDay(18),
-		FDiurnalTimeOfDay(6));
+	TMap<FSoftObjectPath, int32> FirstIndices;
+	for (int32 Index = 0; Index < Schedules.Num(); ++Index)
+	{
+		const FSoftObjectPath Path = Schedules[Index].ToSoftObjectPath();
+		if (Path.IsNull()) continue;
+		if (const int32* FirstIndex = FirstIndices.Find(Path))
+		{
+			OutFirstIndex = *FirstIndex;
+			OutDuplicateIndex = Index;
+			OutPath = Path;
+			return true;
+		}
+		FirstIndices.Add(Path, Index);
+	}
+	return false;
 }
+
+UDiurnalCycleSettings::UDiurnalCycleSettings() = default;
 
 #if WITH_EDITOR
 
@@ -46,6 +51,10 @@ EDataValidationResult UDiurnalCycleSettings::IsDataValid(
 			Context.AddError(Error);
 			bIsValid = false;
 		};
+	const auto AddWarning = [&Context](const FText& Warning)
+	{
+		Context.AddWarning(Warning);
+	};
 
 #pragma region Clock
 
@@ -101,163 +110,53 @@ EDataValidationResult UDiurnalCycleSettings::IsDataValid(
 
 #pragma endregion
 
-#pragma region Events
+#pragma region ScheduleValidation
 
-	TSet<FGameplayTag> SeenEventTags;
-
-	for (int32 Index = 0;
-		 Index < TimeEvents.Num();
-		 ++Index)
+	if (!DefaultSchedules.IsEmpty())
 	{
-		const FDiurnalTimeEvent& Event =
-			TimeEvents[Index];
-
-		if (!Event.EventTag.IsValid())
+		int32 FirstDuplicateIndex = INDEX_NONE;
+		int32 DuplicateIndex = INDEX_NONE;
+		FSoftObjectPath DuplicatePath;
+		if (DiurnalCycle::FindDuplicateScheduleReference(DefaultSchedules, FirstDuplicateIndex, DuplicateIndex, DuplicatePath))
 		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"InvalidTimeEventTag",
-						"Time Events[{0}] has no valid event tag."),
-					FText::AsNumber(
-						Index)));
+			AddError(FText::Format(
+				LOCTEXT("DuplicateDefaultSchedule", "Default Schedules[{0}] duplicates Default Schedules[{1}] ('{2}'). Remove one reference; schedule composition is atomic and will not apply duplicate layers."),
+				FText::AsNumber(DuplicateIndex), FText::AsNumber(FirstDuplicateIndex), FText::FromString(DuplicatePath.ToString())));
 		}
-		else if (SeenEventTags.Contains(
-					Event.EventTag))
+		for (int32 Index = 0; Index < DefaultSchedules.Num(); ++Index)
 		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"DuplicateTimeEventTag",
-						"Time Events[{0}] duplicates the tag '{1}'."),
-					FText::AsNumber(
-						Index),
-					FText::FromString(
-						Event.EventTag.ToString())));
-		}
-		else
-		{
-			SeenEventTags.Add(
-				Event.EventTag);
-		}
+			const TSoftObjectPtr<UDiurnalSchedule>& Reference = DefaultSchedules[Index];
+			const FSoftObjectPath Path = Reference.ToSoftObjectPath();
+			if (Path.IsNull())
+			{
+				AddError(FText::Format(LOCTEXT("EmptyDefaultSchedule", "Default Schedules[{0}] is empty."), FText::AsNumber(Index)));
+				continue;
+			}
 
-		if (!Event.TimeOfDay.IsValid())
-		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"InvalidTimeEventTimeOfDay",
-						"Time Events[{0}] ('{1}') has an invalid "
-						"time of day."),
-					FText::AsNumber(
-						Index),
-					FText::FromString(
-						Event.EventTag.ToString())));
-		}
+			UDiurnalSchedule* Schedule = Reference.LoadSynchronous();
+			if (!IsValid(Schedule))
+			{
+				AddError(FText::Format(LOCTEXT("UnloadedDefaultSchedule", "Default Schedules[{0}] ('{1}') could not be loaded."), FText::AsNumber(Index), FText::FromString(Path.ToString())));
+				continue;
+			}
 
-		if (Event.bDatedEvent
-			&& Event.EventDay < 1)
-		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"InvalidDatedEventDay",
-						"Time Events[{0}] ('{1}') is dated but has "
-						"invalid day {2}."),
-					FText::AsNumber(
-						Index),
-					FText::FromString(
-						Event.EventTag.ToString()),
-					FText::AsNumber(
-						Event.EventDay)));
-		}
-	}
-
-#pragma endregion
-
-#pragma region TimeRanges
-
-	TSet<FGameplayTag> SeenRangeTags;
-
-	for (int32 Index = 0;
-		 Index < TimeRanges.Num();
-		 ++Index)
-	{
-		const FDiurnalTimeRange& Range =
-			TimeRanges[Index];
-
-		if (!Range.RangeTag.IsValid())
-		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"InvalidTimeRangeTag",
-						"Time Ranges[{0}] has no valid range tag."),
-					FText::AsNumber(
-						Index)));
-		}
-		else if (SeenRangeTags.Contains(
-					Range.RangeTag))
-		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"DuplicateTimeRangeTag",
-						"Time Ranges[{0}] duplicates the tag '{1}'."),
-					FText::AsNumber(
-						Index),
-					FText::FromString(
-						Range.RangeTag.ToString())));
-		}
-		else
-		{
-			SeenRangeTags.Add(
-				Range.RangeTag);
-		}
-
-		if (!Range.StartTime.IsValid())
-		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"InvalidTimeRangeStart",
-						"Time Ranges[{0}] ('{1}') has an invalid "
-						"start time."),
-					FText::AsNumber(
-						Index),
-					FText::FromString(
-						Range.RangeTag.ToString())));
-		}
-
-		if (!Range.EndTime.IsValid())
-		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"InvalidTimeRangeEnd",
-						"Time Ranges[{0}] ('{1}') has an invalid "
-						"end time."),
-					FText::AsNumber(
-						Index),
-					FText::FromString(
-						Range.RangeTag.ToString())));
-		}
-
-		if (Range.StartTime.IsValid()
-			&& Range.EndTime.IsValid()
-			&& Range.StartTime == Range.EndTime)
-		{
-			AddError(
-				FText::Format(
-					LOCTEXT(
-						"ZeroLengthTimeRange",
-						"Time Ranges[{0}] ('{1}') has identical start "
-						"and end times; ranges must have a non-zero "
-						"duration."),
-					FText::AsNumber(
-						Index),
-					FText::FromString(
-						Range.RangeTag.ToString())));
+			TArray<FDiurnalScheduleValidationIssue> Issues;
+			Schedule->GetValidationIssues(Issues);
+			for (const FDiurnalScheduleValidationIssue& Issue : Issues)
+			{
+				const FText ContextualMessage = FText::Format(
+					LOCTEXT("DefaultScheduleIssue", "Default schedule '{0}': {1}"),
+					FText::FromString(Schedule->GetName()),
+					Issue.Message);
+				if (Issue.Severity == EDiurnalScheduleIssueSeverity::Error)
+				{
+					AddError(ContextualMessage);
+				}
+				else
+				{
+					AddWarning(ContextualMessage);
+				}
+			}
 		}
 	}
 

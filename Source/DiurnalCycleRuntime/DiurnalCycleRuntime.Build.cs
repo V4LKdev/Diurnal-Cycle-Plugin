@@ -19,5 +19,7 @@ public class DiurnalCycleRuntime : ModuleRules
 			}
 			);
 
+		PrivateDependencyModuleNames.Add("Projects");
+
 	}
 }

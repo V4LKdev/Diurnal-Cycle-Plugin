@@ -20,7 +20,7 @@ class UDiurnalCycleWorldSubsystem;
  * supplied value is rejected by native validation.
  */
 UCLASS()
-class DIURNALCYCLERUNTIME_API UDiurnalCycleBlueprintLibrary final
+class DIURNALCYCLEBLUEPRINT_API UDiurnalCycleBlueprintLibrary final
 	: public UBlueprintFunctionLibrary
 {
 	GENERATED_BODY()
@@ -313,23 +313,6 @@ public:
 	static TArray<FDiurnalTimeEvent> GetDayNightCycleEvents(
 		const UObject* WorldContextObject);
 
-	/** Finds the runtime event identified by EventTag. */
-	UFUNCTION(
-		BlueprintPure,
-		Category = "Day Night Cycle|Events",
-		meta = (
-			WorldContext = "WorldContextObject",
-			DisplayName = "Get Day Night Cycle Event"
-		))
-	static bool GetDayNightCycleEvent(
-		const UObject* WorldContextObject,
-		UPARAM(
-			meta = (
-				Categories = "DiurnalCycle.TimeEvent"
-			))
-		FGameplayTag EventTag,
-		FDiurnalTimeEvent& OutTimeEvent);
-
 	/** Returns whether the runtime event schedule contains EventTag. */
 	UFUNCTION(
 		BlueprintPure,
@@ -346,7 +329,26 @@ public:
 			))
 		FGameplayTag EventTag);
 
-	/** Adds a validated event with a unique gameplay tag. */
+	/** Returns every resolved event containing EventTag. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Events", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDiurnalResolvedTimeEvent> FindDayNightCycleEventsByTag(
+		const UObject* WorldContextObject,
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeEvent")) FGameplayTag EventTag);
+
+	/** Returns every resolved event whose optional tags satisfy TagQuery. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Events", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDiurnalResolvedTimeEvent> FindDayNightCycleEventsByTagQuery(
+		const UObject* WorldContextObject,
+		const FGameplayTagQuery& TagQuery);
+
+	/** Resolves one exact event reference. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Events", meta = (WorldContext = "WorldContextObject"))
+	static bool GetDayNightCycleEventByReference(
+		const UObject* WorldContextObject,
+		const FDiurnalScheduleEntryReference& Reference,
+		FDiurnalResolvedTimeEvent& OutTimeEvent);
+
+	/** Adds a validated event. Tags are optional and may be shared. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "Day Night Cycle|Events",
@@ -358,21 +360,22 @@ public:
 		const UObject* WorldContextObject,
 		const FDiurnalTimeEvent& TimeEvent);
 
-	/** Removes the event identified by EventTag. */
-	UFUNCTION(
-		BlueprintCallable,
-		Category = "Day Night Cycle|Events",
-		meta = (
-			WorldContext = "WorldContextObject",
-			DisplayName = "Remove Day Night Cycle Event"
-		))
-	static bool RemoveDayNightCycleEvent(
+	/** Adds an event and returns its exact runtime reference. */
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Events", meta = (WorldContext = "WorldContextObject"))
+	static bool AddDayNightCycleEventWithReference(
 		const UObject* WorldContextObject,
-		UPARAM(
-			meta = (
-				Categories = "DiurnalCycle.TimeEvent"
-			))
-		FGameplayTag EventTag);
+		const FDiurnalTimeEvent& TimeEvent,
+		FDiurnalScheduleEntryReference& OutReference);
+
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Events", meta = (WorldContext = "WorldContextObject"))
+	static bool RemoveDayNightCycleEventByReference(
+		const UObject* WorldContextObject,
+		const FDiurnalScheduleEntryReference& Reference);
+
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Events", meta = (WorldContext = "WorldContextObject"))
+	static int32 RemoveDayNightCycleEventsMatchingTag(
+		const UObject* WorldContextObject,
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeEvent")) FGameplayTag EventTag);
 
 	/**
 	 * Finds the next scheduled occurrence strictly after the current clock time.
@@ -408,40 +411,42 @@ public:
 		FGameplayTag EventTag,
 		FDiurnalDateTime& OutOccurrenceTime);
 
-	/** Creates a recurring daily event definition. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Events", meta = (WorldContext = "WorldContextObject"))
+	static bool GetNextDayNightCycleEventOccurrenceByReference(
+		const UObject* WorldContextObject,
+		const FDiurnalScheduleEntryReference& Reference,
+		FDiurnalDateTime& OutOccurrenceTime);
+
+	/** Creates an event definition that occurs once on AnchorDay. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "Day Night Cycle|Events",
 		meta = (
-			DisplayName = "Make Daily Time Event"
+			DisplayName = "Make Once Day Night Cycle Event",
+			CPP_Default_AnchorDay = "1"
 		))
-	static FDiurnalTimeEvent MakeDailyTimeEvent(
+	static FDiurnalTimeEvent MakeOnceTimeEvent(
 		UPARAM(
 			meta = (
 				Categories = "DiurnalCycle.TimeEvent"
 			))
 		FGameplayTag EventTag,
+		int32 AnchorDay,
 		const FDiurnalTimeOfDay& TimeOfDay,
 		EDiurnalTimeEventBehavior Behavior =
 			EDiurnalTimeEventBehavior::Notify);
 
-	/** Creates an event definition that occurs only on EventDay. */
-	UFUNCTION(
-		BlueprintPure,
-		Category = "Day Night Cycle|Events",
-		meta = (
-			DisplayName = "Make Dated Time Event"
-		))
-	static FDiurnalTimeEvent MakeDatedTimeEvent(
-		UPARAM(
-			meta = (
-				Categories = "DiurnalCycle.TimeEvent"
-			))
-		FGameplayTag EventTag,
-		int32 EventDay,
+	/** Creates an event that repeats every IntervalDays beginning on AnchorDay. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Events", meta = (
+		DisplayName = "Make Repeating Day Night Cycle Event",
+		CPP_Default_AnchorDay = "1",
+		CPP_Default_IntervalDays = "1"))
+	static FDiurnalTimeEvent MakeRepeatingTimeEvent(
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeEvent")) FGameplayTag EventTag,
+		int32 AnchorDay,
+		int32 IntervalDays,
 		const FDiurnalTimeOfDay& TimeOfDay,
-		EDiurnalTimeEventBehavior Behavior =
-			EDiurnalTimeEventBehavior::Notify);
+		EDiurnalTimeEventBehavior Behavior = EDiurnalTimeEventBehavior::Notify);
 
 	/** Returns whether an event definition satisfies runtime requirements. */
 	UFUNCTION(
@@ -469,23 +474,6 @@ public:
 	GetDayNightCycleTimeRanges(
 		const UObject* WorldContextObject);
 
-	/** Finds the runtime range identified by RangeTag. */
-	UFUNCTION(
-		BlueprintPure,
-		Category = "Day Night Cycle|Time Ranges",
-		meta = (
-			WorldContext = "WorldContextObject",
-			DisplayName = "Get Day Night Cycle Time Range"
-		))
-	static bool GetDayNightCycleTimeRange(
-		const UObject* WorldContextObject,
-		UPARAM(
-			meta = (
-				Categories = "DiurnalCycle.TimeRange"
-			))
-		FGameplayTag RangeTag,
-		FDiurnalTimeRange& OutTimeRange);
-
 	/** Returns whether the runtime time-range schedule contains RangeTag. */
 	UFUNCTION(
 		BlueprintPure,
@@ -502,7 +490,23 @@ public:
 			))
 		FGameplayTag RangeTag);
 
-	/** Adds a validated range with a unique gameplay tag. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Ranges", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDiurnalResolvedTimeRange> FindDayNightCycleTimeRangesByTag(
+		const UObject* WorldContextObject,
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeRange")) FGameplayTag RangeTag);
+
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Ranges", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDiurnalResolvedTimeRange> FindDayNightCycleTimeRangesByTagQuery(
+		const UObject* WorldContextObject,
+		const FGameplayTagQuery& TagQuery);
+
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Ranges", meta = (WorldContext = "WorldContextObject"))
+	static bool GetDayNightCycleTimeRangeByReference(
+		const UObject* WorldContextObject,
+		const FDiurnalScheduleEntryReference& Reference,
+		FDiurnalResolvedTimeRange& OutTimeRange);
+
+	/** Adds a validated range. Tags are optional and may be shared. */
 	UFUNCTION(
 		BlueprintCallable,
 		Category = "Day Night Cycle|Time Ranges",
@@ -514,23 +518,23 @@ public:
 		const UObject* WorldContextObject,
 		const FDiurnalTimeRange& TimeRange);
 
-	/** Removes the range identified by RangeTag. */
-	UFUNCTION(
-		BlueprintCallable,
-		Category = "Day Night Cycle|Time Ranges",
-		meta = (
-			WorldContext = "WorldContextObject",
-			DisplayName = "Remove Day Night Cycle Time Range"
-		))
-	static bool RemoveDayNightCycleTimeRange(
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Time Ranges", meta = (WorldContext = "WorldContextObject"))
+	static bool AddDayNightCycleTimeRangeWithReference(
 		const UObject* WorldContextObject,
-		UPARAM(
-			meta = (
-				Categories = "DiurnalCycle.TimeRange"
-			))
-		FGameplayTag RangeTag);
+		const FDiurnalTimeRange& TimeRange,
+		FDiurnalScheduleEntryReference& OutReference);
 
-	/** Returns whether TimeOfDay lies inside the range identified by RangeTag. */
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Time Ranges", meta = (WorldContext = "WorldContextObject"))
+	static bool RemoveDayNightCycleTimeRangeByReference(
+		const UObject* WorldContextObject,
+		const FDiurnalScheduleEntryReference& Reference);
+
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Time Ranges", meta = (WorldContext = "WorldContextObject"))
+	static int32 RemoveDayNightCycleTimeRangesMatchingTag(
+		const UObject* WorldContextObject,
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeRange")) FGameplayTag RangeTag);
+
+	/** Returns whether TimeOfDay lies inside any range containing RangeTag. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "Day Night Cycle|Time Ranges",
@@ -563,16 +567,22 @@ public:
 			))
 		FGameplayTag RangeTag);
 
-	/** Returns all ranges active at the current clock time. */
+	/** Returns unique aggregate semantic tags from active ranges; tagless entries are omitted. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "Day Night Cycle|Time Ranges",
 		meta = (
 			WorldContext = "WorldContextObject",
-			DisplayName = "Get Active Day Night Cycle Time Ranges"
+			DisplayName = "Get Active Day Night Cycle Time Range Tags",
+			ToolTip = "Returns unique aggregate semantic tags. Several active entries may contribute the same tag; tagless entries are omitted. Use Get Active Day Night Cycle Time Range Entries when identity matters."
 		))
 	static TArray<FGameplayTag>
-	GetActiveDayNightCycleTimeRanges(
+	GetActiveDayNightCycleTimeRangeTags(
+		const UObject* WorldContextObject);
+
+	/** Returns exact references for every active range contribution. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Ranges", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDiurnalScheduleEntryReference> GetActiveDayNightCycleTimeRangeEntries(
 		const UObject* WorldContextObject);
 
 	/** Constructs a recurring time-range definition. */
@@ -588,6 +598,28 @@ public:
 				Categories = "DiurnalCycle.TimeRange"
 			))
 		FGameplayTag RangeTag,
+		const FDiurnalTimeOfDay& StartTime,
+		const FDiurnalTimeOfDay& EndTime);
+
+	/** Constructs a one-off range beginning on Day. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Ranges", meta = (
+		DisplayName = "Make One-Off Day Night Cycle Time Range",
+		CPP_Default_Day = "1"))
+	static FDiurnalTimeRange MakeOneOffDayNightCycleTimeRange(
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeRange")) FGameplayTag RangeTag,
+		int32 Day,
+		const FDiurnalTimeOfDay& StartTime,
+		const FDiurnalTimeOfDay& EndTime);
+
+	/** Constructs a range repeating every IntervalDays beginning on AnchorDay. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Ranges", meta = (
+		DisplayName = "Make Repeating Day Night Cycle Time Range",
+		CPP_Default_AnchorDay = "1",
+		CPP_Default_IntervalDays = "1"))
+	static FDiurnalTimeRange MakeRepeatingDayNightCycleTimeRange(
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeRange")) FGameplayTag RangeTag,
+		int32 AnchorDay,
+		int32 IntervalDays,
 		const FDiurnalTimeOfDay& StartTime,
 		const FDiurnalTimeOfDay& EndTime);
 
@@ -616,15 +648,21 @@ public:
 	static bool IsDayNightCycleBlockedByTimeGate(
 		const UObject* WorldContextObject);
 
-	/** Returns every currently active time-gate tag. */
+	/** Returns unique aggregate semantic tags from active gates; tagless gates are omitted. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "Day Night Cycle|Time Gates",
 		meta = (
 			WorldContext = "WorldContextObject",
-			DisplayName = "Get Active Day Night Cycle Time Gates"
+			DisplayName = "Get Active Day Night Cycle Time Gate Tags",
+			ToolTip = "Returns unique aggregate semantic tags. Several active occurrences may contribute the same tag; tagless gates are omitted. Use Get Active Day Night Cycle Time Gate Occurrences when identity matters."
 		))
-	static TArray<FGameplayTag> GetActiveDayNightCycleTimeGates(
+	static TArray<FGameplayTag> GetActiveDayNightCycleTimeGateTags(
+		const UObject* WorldContextObject);
+
+	/** Returns every exact blocking occurrence currently holding the clock. */
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Gates", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDiurnalEventOccurrenceHandle> GetActiveDayNightCycleTimeGateOccurrences(
 		const UObject* WorldContextObject);
 
 	/** Returns whether GateTag is currently active. */
@@ -643,21 +681,22 @@ public:
 			))
 		FGameplayTag GateTag);
 
-	/** Releases one active time gate. */
-	UFUNCTION(
-		BlueprintCallable,
-		Category = "Day Night Cycle|Time Gates",
-		meta = (
-			WorldContext = "WorldContextObject",
-			DisplayName = "Release Day Night Cycle Time Gate"
-		))
-	static bool ReleaseDayNightCycleTimeGate(
+	UFUNCTION(BlueprintPure, Category = "Day Night Cycle|Time Gates", meta = (WorldContext = "WorldContextObject"))
+	static bool IsDayNightCycleTimeGateOccurrenceActive(
 		const UObject* WorldContextObject,
-		UPARAM(
-			meta = (
-				Categories = "DiurnalCycle.TimeEvent"
-			))
-		FGameplayTag GateTag);
+		const FDiurnalEventOccurrenceHandle& Occurrence);
+
+	/** Releases one exact blocking occurrence. */
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Time Gates", meta = (WorldContext = "WorldContextObject"))
+	static bool ReleaseDayNightCycleTimeGateOccurrence(
+		const UObject* WorldContextObject,
+		const FDiurnalEventOccurrenceHandle& Occurrence);
+
+	/** Releases every active gate whose event contains GateTag. */
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Time Gates", meta = (WorldContext = "WorldContextObject"))
+	static int32 ReleaseDayNightCycleTimeGatesMatchingTag(
+		const UObject* WorldContextObject,
+		UPARAM(meta = (Categories = "DiurnalCycle.TimeEvent")) FGameplayTag GateTag);
 
 	/** Releases every currently active time gate and returns the number released. */
 	UFUNCTION(
@@ -703,6 +742,18 @@ public:
 	static bool RestoreDayNightCycleState(
 		const UObject* WorldContextObject,
 		const FDiurnalCycleState& State);
+
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Persistence", meta = (WorldContext = "WorldContextObject"))
+	static bool CaptureDayNightCycleClockState(const UObject* WorldContextObject, FDiurnalClockState& OutState);
+
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Persistence", meta = (WorldContext = "WorldContextObject"))
+	static bool RestoreDayNightCycleClockState(const UObject* WorldContextObject, const FDiurnalClockState& State);
+
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Persistence", meta = (WorldContext = "WorldContextObject"))
+	static bool CaptureDayNightCycleScheduleState(const UObject* WorldContextObject, FDiurnalScheduleRuntimeState& OutState);
+
+	UFUNCTION(BlueprintCallable, Category = "Day Night Cycle|Persistence", meta = (WorldContext = "WorldContextObject"))
+	static bool RestoreDayNightCycleScheduleState(const UObject* WorldContextObject, const FDiurnalScheduleRuntimeState& State);
 
 #pragma endregion
 

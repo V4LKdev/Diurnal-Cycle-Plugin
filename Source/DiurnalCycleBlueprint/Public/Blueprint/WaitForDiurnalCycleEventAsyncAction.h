@@ -23,15 +23,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FGameplayTag, EventTag);
 
 /**
- * Waits for the next ordinary occurrence of one exact scheduled event tag.
+ * Waits for the next occurrence of any event containing a semantic tag.
  *
  * The action is session-scoped and is not serialized into save games.
  * Persistent gameplay systems must recreate waits after restoring their own
  * state.
  *
- * Daily events wait for their next occurrence. Dated events can be waited for
- * only while a future occurrence remains reachable. Teleporting or restoring
- * the clock past a dated occurrence invalidates an already-active wait.
+ * Repeating events wait for their next occurrence. One-off events can be
+ * waited for only while a future occurrence remains reachable. Teleporting or
+ * restoring the clock past one invalidates an already-active wait.
  *
  * Blocking events are still ordinary scheduled events, so their occurrence
  * also satisfies this wait when reached through forward advancement.
@@ -42,7 +42,7 @@ UCLASS(
 		ExposedAsyncProxy = "AsyncAction",
 		HideThen
 	))
-class DIURNALCYCLERUNTIME_API
+class DIURNALCYCLEBLUEPRINT_API
 UWaitForDiurnalCycleEventAsyncAction final
 	: public UCancellableAsyncAction
 {
@@ -52,10 +52,10 @@ public:
 #pragma region Factory
 
 	/**
-	 * Waits for the next ordinary occurrence of EventTag.
+	 * Waits for the next occurrence contributed by any event containing EventTag.
 	 *
-	 * Matching is exact; parent and child Gameplay Tags do not match
-	 * implicitly.
+	 * Tag membership is exact; multiple entries may share the tag and the first
+	 * matching occurrence completes the action.
 	 */
 	UFUNCTION(
 		BlueprintCallable,
@@ -84,13 +84,13 @@ public:
 		Category = "Day Night Cycle|Async")
 	FWaitForDiurnalCycleEventTriggered Triggered;
 
-	/** Fired once when an active wait can no longer reach its target. */
+	/** Fired when a valid, started wait becomes unreachable before triggering. */
 	UPROPERTY(
 		BlueprintAssignable,
 		Category = "Day Night Cycle|Async")
 	FWaitForDiurnalCycleEventInvalidated Invalidated;
 
-	/** Fired once when the wait cannot be started. */
+	/** Fired when configuration/target is invalid or every matching occurrence is already in the past. */
 	UPROPERTY(
 		BlueprintAssignable,
 		Category = "Day Night Cycle|Async")

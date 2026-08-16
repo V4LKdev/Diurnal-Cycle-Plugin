@@ -2,6 +2,8 @@
 
 #include "Subsystem/DiurnalCycleSubsystem.h"
 
+// Session-scoped Blueprint async adapter.
+
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -132,15 +134,6 @@ bool UWaitForDiurnalCycleEventAsyncAction::
 IsTargetReachable(
 	const UDiurnalCycleSubsystem& Subsystem) const
 {
-	FDiurnalTimeEvent TimeEvent;
-
-	if (!Subsystem.TryGetTimeEvent(
-			TargetEventTag,
-			TimeEvent))
-	{
-		return false;
-	}
-
 	FDiurnalDateTime NextOccurrence;
 
 	return Subsystem.TryGetNextOccurrence(
@@ -157,8 +150,7 @@ HandleTimeEventTriggered(
 	const FDiurnalTimeEvent& TimeEvent,
 	const FDiurnalDateTime& OccurrenceTime)
 {
-	if (TimeEvent.EventTag
-		!= TargetEventTag)
+	if (!TimeEvent.HasTagExact(TargetEventTag))
 	{
 		return;
 	}
@@ -172,10 +164,13 @@ void UWaitForDiurnalCycleEventAsyncAction::
 HandleTimeEventRemoved(
 	const FDiurnalTimeEvent& TimeEvent)
 {
-	if (TimeEvent.EventTag
-		== TargetEventTag)
+	if (TimeEvent.HasTagExact(TargetEventTag))
 	{
-		FinishInvalidated();
+		const UDiurnalCycleSubsystem* Subsystem = NativeSubsystem.Get();
+		if (!Subsystem || !IsTargetReachable(*Subsystem))
+		{
+			FinishInvalidated();
+		}
 	}
 }
 

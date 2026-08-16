@@ -8,6 +8,7 @@
 class AWorldSettings;
 class FActiveTimerHandle;
 class UDiurnalCycleSubsystem;
+class STextBlock;
 struct FDiurnalTimeChange;
 
 /**
@@ -75,6 +76,7 @@ private:
 	TSharedRef<SWidget> BuildWorldPolicyMenu();
 
 	FText GetWorldPolicyToolTipText() const;
+	const FSlateBrush* GetWorldPolicyIcon() const;
 
 	bool CanEditWorldPolicy() const;
 
@@ -93,6 +95,7 @@ private:
 
 #pragma region ProjectSettings
 
+	FReply OpenScheduleBrowser();
 	FReply OpenSettings();
 
 #pragma endregion
@@ -101,6 +104,7 @@ private:
 #pragma region State
 
 	FText DisplayText;
+	TSharedPtr<STextBlock> ClockTextBlock;
 
 	TWeakObjectPtr<UDiurnalCycleSubsystem> BoundSubsystem;
 	FDelegateHandle TimeChangedHandle;

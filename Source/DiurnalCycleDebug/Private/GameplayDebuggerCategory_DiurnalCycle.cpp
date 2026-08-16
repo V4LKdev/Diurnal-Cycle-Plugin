@@ -274,6 +274,7 @@ void FGameplayDebuggerCategory_DiurnalCycle::CollectData(
 
 	Data.bPaused =
 		Subsystem->IsPaused();
+	Data.PauseReason = Subsystem->GetPauseReason();
 
 	Data.bBlockedByTimeGate =
 		Subsystem->IsBlockedByTimeGate();
@@ -354,13 +355,13 @@ void FGameplayDebuggerCategory_DiurnalCycle::CollectData(
 
 	for (const FDiurnalTimeEvent& Event : Events)
 	{
-		if (Event.bDatedEvent)
+		if (Event.Recurrence.Mode == EDiurnalRecurrenceMode::Once)
 		{
-			++Data.DatedEventCount;
+			++Data.OnceEventCount;
 		}
 		else
 		{
-			++Data.DailyEventCount;
+			++Data.RepeatingEventCount;
 		}
 
 		if (Event.IsBlocking())
@@ -372,18 +373,24 @@ void FGameplayDebuggerCategory_DiurnalCycle::CollectData(
 	Data.TimeRangeCount =
 		Subsystem->GetTimeRanges().Num();
 
-	for (const FGameplayTag RangeTag :
-		 Subsystem->GetActiveTimeRanges())
+	for (const FDiurnalScheduleEntryReference& Reference :
+		 Subsystem->GetActiveTimeRangeEntries())
 	{
-		Data.ActiveTimeRanges.Add(
-			RangeTag.GetTagName());
+		FDiurnalResolvedTimeRange Range;
+		if (Subsystem->TryGetTimeRange(Reference, Range))
+		{
+			Data.ActiveTimeRanges.Add(Range.Range.GetDisplayName());
+		}
 	}
 
-	for (const FGameplayTag GateTag :
-		 Subsystem->GetActiveTimeGates())
+	for (const FDiurnalEventOccurrenceHandle& Occurrence :
+		 Subsystem->GetActiveTimeGateOccurrences())
 	{
-		Data.ActiveTimeGates.Add(
-			GateTag.GetTagName());
+		FDiurnalResolvedTimeEvent Event;
+		if (Subsystem->TryGetTimeEvent(Occurrence.Entry, Event))
+		{
+			Data.ActiveTimeGates.Add(Event.Event.GetDisplayName());
+		}
 	}
 
 	FDiurnalTimeEvent NextEvent;
@@ -396,16 +403,15 @@ void FGameplayDebuggerCategory_DiurnalCycle::CollectData(
 
 	if (Data.bHasNextEvent)
 	{
-		Data.NextEventName =
-			NextEvent.EventTag.GetTagName();
+		Data.NextEventName = NextEvent.GetDisplayName();
 
-		Data.bNextEventDated =
-			NextEvent.bDatedEvent;
+		Data.bNextEventOnce =
+			NextEvent.Recurrence.Mode == EDiurnalRecurrenceMode::Once;
 
 		Data.bNextEventBlocking =
 			NextEvent.IsBlocking();
 
-		Data.NextEventDay =
+		Data.NextOccurrenceDay =
 			NextOccurrenceTime.Day;
 
 		Data.NextEventHour =
@@ -493,6 +499,10 @@ void FGameplayDebuggerCategory_DiurnalCycle::DrawData(
 				"{red}Stopped "
 				"{yellow}| Reason: {white}%s"),
 			*StopReasonText);
+		if (!Data.PauseReason.IsEmpty())
+		{
+			CanvasContext.Printf(TEXT("{yellow}Safety Pause: {white}%s"), *Data.PauseReason);
+		}
 	}
 
 	CanvasContext.Printf(
@@ -535,12 +545,12 @@ void FGameplayDebuggerCategory_DiurnalCycle::DrawData(
 	CanvasContext.Printf(
 		TEXT(
 			"{yellow}Events: {white}%d "
-			"{yellow}| Daily: {white}%d "
-			"{yellow}| Dated: {white}%d "
+			"{yellow}| Repeating: {white}%d "
+			"{yellow}| Once: {white}%d "
 			"{yellow}| Gates: {white}%d"),
 		Data.EventCount,
-		Data.DailyEventCount,
-		Data.DatedEventCount,
+		Data.RepeatingEventCount,
+		Data.OnceEventCount,
 		Data.BlockingEventCount);
 
 	if (Data.bHasNextEvent)
@@ -552,13 +562,13 @@ void FGameplayDebuggerCategory_DiurnalCycle::DrawData(
 				"{yellow}| At: {white}"
 				"Day %d, %02d:%02d:%02d"),
 			*Data.NextEventName.ToString(),
-			Data.bNextEventDated
-				? TEXT("Dated")
-				: TEXT("Daily"),
+			Data.bNextEventOnce
+				? TEXT("Once")
+				: TEXT("Repeating"),
 			Data.bNextEventBlocking
 				? TEXT("Block Time")
 				: TEXT("Notify"),
-			Data.NextEventDay,
+			Data.NextOccurrenceDay,
 			Data.NextEventHour,
 			Data.NextEventMinute,
 			Data.NextEventSecond);
@@ -648,10 +658,11 @@ FRepData::Serialize(
 	Ar << EffectiveRealSecondsPerGameHour;
 
 	Ar << WorldName;
+	Ar << PauseReason;
 
 	Ar << EventCount;
-	Ar << DailyEventCount;
-	Ar << DatedEventCount;
+	Ar << RepeatingEventCount;
+	Ar << OnceEventCount;
 	Ar << BlockingEventCount;
 
 	Ar << TimeRangeCount;
@@ -659,12 +670,12 @@ FRepData::Serialize(
 	Ar << ActiveTimeGates;
 
 	Ar << bHasNextEvent;
-	Ar << bNextEventDated;
+	Ar << bNextEventOnce;
 	Ar << bNextEventBlocking;
 
 	Ar << NextEventName;
 
-	Ar << NextEventDay;
+	Ar << NextOccurrenceDay;
 	Ar << NextEventHour;
 	Ar << NextEventMinute;
 	Ar << NextEventSecond;

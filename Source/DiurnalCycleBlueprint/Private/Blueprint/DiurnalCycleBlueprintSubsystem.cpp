@@ -2,6 +2,8 @@
 
 #include "Subsystem/DiurnalCycleSubsystem.h"
 
+// Blueprint notifications bridge native runtime delegates without owning clock state.
+
 #include "Subsystems/SubsystemCollection.h"
 
 #pragma region USubsystem
@@ -34,6 +36,10 @@ void UDiurnalCycleBlueprintSubsystem::Initialize(
 		this,
 		&UDiurnalCycleBlueprintSubsystem::
 			HandleTimeEventTriggered);
+
+	Subsystem->OnTimeEventOccurrence().AddUObject(
+		this,
+		&UDiurnalCycleBlueprintSubsystem::HandleTimeEventOccurrence);
 
 	Subsystem->OnTimeEventAdded().AddUObject(
 		this,
@@ -75,15 +81,26 @@ void UDiurnalCycleBlueprintSubsystem::Initialize(
 		&UDiurnalCycleBlueprintSubsystem::
 			HandleTimeRangeExited);
 
+	Subsystem->OnTimeRangeEntryEntered().AddUObject(
+		this,
+		&UDiurnalCycleBlueprintSubsystem::HandleTimeRangeEntryEntered);
+
+	Subsystem->OnTimeRangeEntryExited().AddUObject(
+		this,
+		&UDiurnalCycleBlueprintSubsystem::HandleTimeRangeEntryExited);
+
 	Subsystem->OnTimeGateActivated().AddUObject(
 		this,
 		&UDiurnalCycleBlueprintSubsystem::
 			HandleTimeGateActivated);
 
-	Subsystem->OnTimeGateReleased().AddUObject(
+	Subsystem->OnTimeGateOccurrenceActivated().AddUObject(
 		this,
-		&UDiurnalCycleBlueprintSubsystem::
-			HandleTimeGateReleased);
+		&UDiurnalCycleBlueprintSubsystem::HandleTimeGateOccurrenceActivated);
+
+	Subsystem->OnTimeGateOccurrenceReleased().AddUObject(
+		this,
+		&UDiurnalCycleBlueprintSubsystem::HandleTimeGateOccurrenceReleased);
 }
 
 void UDiurnalCycleBlueprintSubsystem::Deinitialize()
@@ -96,6 +113,8 @@ void UDiurnalCycleBlueprintSubsystem::Deinitialize()
 
 		Subsystem->OnTimeEventTriggered().RemoveAll(
 			this);
+
+		Subsystem->OnTimeEventOccurrence().RemoveAll(this);
 
 		Subsystem->OnTimeEventAdded().RemoveAll(
 			this);
@@ -121,11 +140,14 @@ void UDiurnalCycleBlueprintSubsystem::Deinitialize()
 		Subsystem->OnTimeRangeExited().RemoveAll(
 			this);
 
+		Subsystem->OnTimeRangeEntryEntered().RemoveAll(this);
+		Subsystem->OnTimeRangeEntryExited().RemoveAll(this);
+
 		Subsystem->OnTimeGateActivated().RemoveAll(
 			this);
 
-		Subsystem->OnTimeGateReleased().RemoveAll(
-			this);
+		Subsystem->OnTimeGateOccurrenceActivated().RemoveAll(this);
+		Subsystem->OnTimeGateOccurrenceReleased().RemoveAll(this);
 	}
 
 	NativeSubsystem.Reset();
@@ -138,6 +160,7 @@ void UDiurnalCycleBlueprintSubsystem::Deinitialize()
 	OnTimeScaleChanged.Clear();
 
 	OnTimeEventTriggered.Clear();
+	OnTimeEventOccurrence.Clear();
 	OnTimeEventAdded.Clear();
 	OnTimeEventRemoved.Clear();
 
@@ -145,9 +168,12 @@ void UDiurnalCycleBlueprintSubsystem::Deinitialize()
 	OnTimeRangeRemoved.Clear();
 	OnTimeRangeEntered.Clear();
 	OnTimeRangeExited.Clear();
+	OnTimeRangeEntryEntered.Clear();
+	OnTimeRangeEntryExited.Clear();
 
 	OnTimeGateActivated.Clear();
-	OnTimeGateReleased.Clear();
+	OnTimeGateOccurrenceActivated.Clear();
+	OnTimeGateOccurrenceReleased.Clear();
 
 	Super::Deinitialize();
 }
@@ -173,6 +199,14 @@ HandleTimeEventTriggered(
 	OnTimeEventTriggered.Broadcast(
 		TimeEvent,
 		OccurrenceTime);
+}
+
+void UDiurnalCycleBlueprintSubsystem::HandleTimeEventOccurrence(
+	const FDiurnalEventOccurrenceHandle& Occurrence,
+	const FDiurnalTimeEvent& TimeEvent,
+	const FDiurnalDateTime& OccurrenceTime)
+{
+	OnTimeEventOccurrence.Broadcast(Occurrence, TimeEvent, OccurrenceTime);
 }
 
 void UDiurnalCycleBlueprintSubsystem::
@@ -245,6 +279,22 @@ HandleTimeRangeExited(
 		CurrentDateTime);
 }
 
+void UDiurnalCycleBlueprintSubsystem::HandleTimeRangeEntryEntered(
+	const FDiurnalScheduleEntryReference& Entry,
+	const FDiurnalTimeRange& TimeRange,
+	const FDiurnalDateTime& CurrentDateTime)
+{
+	OnTimeRangeEntryEntered.Broadcast(Entry, TimeRange, CurrentDateTime);
+}
+
+void UDiurnalCycleBlueprintSubsystem::HandleTimeRangeEntryExited(
+	const FDiurnalScheduleEntryReference& Entry,
+	const FDiurnalTimeRange& TimeRange,
+	const FDiurnalDateTime& CurrentDateTime)
+{
+	OnTimeRangeEntryExited.Broadcast(Entry, TimeRange, CurrentDateTime);
+}
+
 void UDiurnalCycleBlueprintSubsystem::
 HandleTimeGateActivated(
 	const FDiurnalTimeEvent& TimeEvent,
@@ -255,14 +305,18 @@ HandleTimeGateActivated(
 		ActivationTime);
 }
 
-void UDiurnalCycleBlueprintSubsystem::
-HandleTimeGateReleased(
-	const FGameplayTag GateTag,
+void UDiurnalCycleBlueprintSubsystem::HandleTimeGateOccurrenceActivated(
+	const FDiurnalEventOccurrenceHandle& Occurrence,
+	const FDiurnalTimeEvent& TimeEvent)
+{
+	OnTimeGateOccurrenceActivated.Broadcast(Occurrence, TimeEvent);
+}
+
+void UDiurnalCycleBlueprintSubsystem::HandleTimeGateOccurrenceReleased(
+	const FDiurnalEventOccurrenceHandle& Occurrence,
 	const FDiurnalDateTime& ReleaseTime)
 {
-	OnTimeGateReleased.Broadcast(
-		GateTag,
-		ReleaseTime);
+	OnTimeGateOccurrenceReleased.Broadcast(Occurrence, ReleaseTime);
 }
 
 #pragma endregion

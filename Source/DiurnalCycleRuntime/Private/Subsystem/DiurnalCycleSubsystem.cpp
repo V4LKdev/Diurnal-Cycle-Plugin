@@ -54,7 +54,7 @@ void UDiurnalCycleSubsystem::Initialize(
 			: TEXT("no"),
 		TimeEvents.Num(),
 		TimeRanges.Num(),
-		ActiveTimeGates.Num());
+		ActiveTimeGateOccurrences.Num());
 }
 
 void UDiurnalCycleSubsystem::Deinitialize()
@@ -66,7 +66,15 @@ void UDiurnalCycleSubsystem::Deinitialize()
 
 	TimeEvents.Reset();
 	TimeRanges.Reset();
-	ActiveTimeGates.Reset();
+	ActiveTimeGateOccurrences.Reset();
+	ActiveScheduleReferences.Reset();
+	ActiveScheduleAssets.Reset();
+	RuntimeTimeEvents.Reset();
+	RuntimeTimeRanges.Reset();
+	DisabledEventEntries.Reset();
+	DisabledRangeEntries.Reset();
+	ResolvedTimeEvents.Reset();
+	ResolvedTimeRanges.Reset();
 
 	Super::Deinitialize();
 }
@@ -78,6 +86,11 @@ void UDiurnalCycleSubsystem::Deinitialize()
 void UDiurnalCycleSubsystem::SetPaused(
 	const bool bNewPaused)
 {
+	if (!bNewPaused)
+	{
+		PauseReason.Reset();
+		bMaximumDateWarningEmitted = false;
+	}
 	if (bPaused == bNewPaused)
 	{
 		return;
@@ -174,13 +187,18 @@ bool UDiurnalCycleSubsystem::TrySetDateTime(
 	const FDiurnalDateTime PreviousDateTime =
 		GetDateTime();
 
-	const TArray<FDiurnalTimeRange>
+	const TArray<FDiurnalResolvedTimeRange>
 		PreviousActiveRanges =
 			GetActiveTimeRangeDefinitions(
-				PreviousDateTime.GetTimeOfDay());
+				PreviousDateTime);
 
 	const double NewTotalGameHours =
 		NewDateTime.ToTotalHours();
+	if (!FMath::IsNearlyEqual(NewTotalGameHours, PreviousHours))
+	{
+		PauseReason.Reset();
+		bMaximumDateWarningEmitted = false;
+	}
 
 	/*
 	 * Explicit date-time assignment is an exact teleport. Ordinary events are
@@ -205,10 +223,10 @@ bool UDiurnalCycleSubsystem::TrySetDateTime(
 		AppliedDateTime,
 		true);
 
-	const TArray<FDiurnalTimeRange>
+	const TArray<FDiurnalResolvedTimeRange>
 		CurrentActiveRanges =
 			GetActiveTimeRangeDefinitions(
-				AppliedDateTime.GetTimeOfDay());
+				AppliedDateTime);
 
 	BroadcastTimeRangeTransitions(
 		PreviousActiveRanges,
@@ -259,7 +277,7 @@ bool UDiurnalCycleSubsystem::TryAdvanceHours(
 			TEXT(
 				"Ignored manual advancement while blocked "
 				"by %d active time gate(s)."),
-			ActiveTimeGates.Num());
+			ActiveTimeGateOccurrences.Num());
 
 		return false;
 	}
@@ -270,13 +288,15 @@ bool UDiurnalCycleSubsystem::TryAdvanceHours(
 
 	if (GameHours > RemainingHours)
 	{
-		UE_LOG(
-			LogDiurnalCycle,
-			Warning,
-			TEXT(
-				"Rejected advancement of %g game hours because it "
-				"would exceed the maximum supported date."),
-			GameHours);
+		if (!bMaximumDateWarningEmitted)
+		{
+			UE_LOG(LogDiurnalCycle, Warning,
+				TEXT("Clock advancement stopped at %s: adding %g game hours would exceed the maximum representable date; the clock is now paused."),
+				*GetDateTime().ToString(), GameHours);
+			bMaximumDateWarningEmitted = true;
+		}
+		PauseReason = TEXT("Maximum representable date reached");
+		SetPaused(true);
 
 		return false;
 	}
@@ -351,12 +371,17 @@ void UDiurnalCycleSubsystem::Tick(
 		DiurnalCycle::MaximumTotalGameHours
 		- TotalGameHours;
 
-	if (!ensureMsgf(
-			GameHours <= RemainingHours,
-			TEXT(
-				"Diurnal clock exceeded its supported date range.")))
+	if (GameHours > RemainingHours)
 	{
-		Pause();
+		if (!bMaximumDateWarningEmitted)
+		{
+			UE_LOG(LogDiurnalCycle, Warning,
+				TEXT("Clock advancement stopped at %s: adding %g game hours would exceed the maximum representable date; the clock is now paused."),
+				*GetDateTime().ToString(), GameHours);
+			bMaximumDateWarningEmitted = true;
+		}
+		PauseReason = TEXT("Maximum representable date reached");
+		SetPaused(true);
 		return;
 	}
 
@@ -393,13 +418,12 @@ void UDiurnalCycleSubsystem::AdvanceInternal(
 	const double PreviousHours =
 		TotalGameHours;
 
-	const FDiurnalTimeOfDay PreviousTimeOfDay =
-		GetTimeOfDay();
+	const FDiurnalDateTime PreviousDateTime = GetDateTime();
 
-	const TArray<FDiurnalTimeRange>
+	const TArray<FDiurnalResolvedTimeRange>
 		PreviousActiveRanges =
 			GetActiveTimeRangeDefinitions(
-				PreviousTimeOfDay);
+				PreviousDateTime);
 
 	const double RequestedHours =
 		TotalGameHours
@@ -430,10 +454,10 @@ void UDiurnalCycleSubsystem::AdvanceInternal(
 	const FDiurnalDateTime CurrentDateTime =
 		GetDateTime();
 
-	const TArray<FDiurnalTimeRange>
+	const TArray<FDiurnalResolvedTimeRange>
 		CurrentActiveRanges =
 			GetActiveTimeRangeDefinitions(
-				CurrentDateTime.GetTimeOfDay());
+				CurrentDateTime);
 
 	BroadcastTimeRangeTransitions(
 		PreviousActiveRanges,
@@ -514,7 +538,7 @@ void UDiurnalCycleSubsystem::ApplySettings()
 			Warning,
 			TEXT(
 				"Invalid configured RealSecondsPerGameHour (%g). "
-				"Using fallback value %g."),
+				"Using the runtime default %g."),
 			Settings->RealSecondsPerGameHour,
 			RealSecondsPerGameHour);
 	}
@@ -535,7 +559,7 @@ void UDiurnalCycleSubsystem::ApplySettings()
 			Warning,
 			TEXT(
 				"Invalid configured DefaultTimeScale (%g). "
-				"Using fallback value %g."),
+				"Using the runtime default %g."),
 			Settings->DefaultTimeScale,
 			TimeScale);
 	}
@@ -568,98 +592,20 @@ void UDiurnalCycleSubsystem::ApplySettings()
 	bPaused =
 		Settings->bStartPaused;
 
-	TimeEvents.Reset(
-		Settings->TimeEvents.Num());
+	ActiveScheduleReferences = Settings->DefaultSchedules;
+	RuntimeTimeEvents.Reset();
+	RuntimeTimeRanges.Reset();
+	DisabledEventEntries.Reset();
+	DisabledRangeEntries.Reset();
 
-	TSet<FGameplayTag> SeenEventTags;
-
-	for (int32 Index = 0;
-		 Index < Settings->TimeEvents.Num();
-		 ++Index)
+	if (!RebuildCompiledSchedule(false))
 	{
-		const FDiurnalTimeEvent& Event =
-			Settings->TimeEvents[Index];
-
-		if (!Event.IsValid())
-		{
-			UE_LOG(
-				LogDiurnalCycle,
-				Warning,
-				TEXT(
-					"Ignored TimeEvents[%d]: invalid event definition."),
-				Index);
-
-			continue;
-		}
-
-		if (SeenEventTags.Contains(
-				Event.EventTag))
-		{
-			UE_LOG(
-				LogDiurnalCycle,
-				Warning,
-				TEXT(
-					"Ignored TimeEvents[%d] ('%s'): "
-					"event tags must be unique."),
-				Index,
-				*Event.EventTag.ToString());
-
-			continue;
-		}
-
-		SeenEventTags.Add(
-			Event.EventTag);
-
-		TimeEvents.Add(
-			Event);
-	}
-
-	SortTimeEvents();
-
-	TimeRanges.Reset(
-		Settings->TimeRanges.Num());
-
-	TSet<FGameplayTag> SeenRangeTags;
-
-	for (int32 Index = 0;
-		 Index < Settings->TimeRanges.Num();
-		 ++Index)
-	{
-		const FDiurnalTimeRange& Range =
-			Settings->TimeRanges[Index];
-
-		if (!Range.IsValid())
-		{
-			UE_LOG(
-				LogDiurnalCycle,
-				Warning,
-				TEXT(
-					"Ignored TimeRanges[%d]: invalid range definition."),
-				Index);
-
-			continue;
-		}
-
-		if (SeenRangeTags.Contains(
-				Range.RangeTag))
-		{
-			UE_LOG(
-				LogDiurnalCycle,
-				Warning,
-				TEXT(
-					"Ignored TimeRanges[%d] ('%s'): "
-					"range tags must be unique."),
-				Index,
-				*Range.RangeTag.ToString());
-
-			continue;
-		}
-
-		SeenRangeTags.Add(
-			Range.RangeTag);
-
-		TimeRanges.Add(
-			Range);
+		ActiveScheduleReferences.Reset();
+		ActiveScheduleAssets.Reset();
+		TimeEvents.Reset();
+		TimeRanges.Reset();
+		ResolvedTimeEvents.Reset();
+		ResolvedTimeRanges.Reset();
 	}
 
 	/*

@@ -11,11 +11,23 @@
 
 #include "DiurnalCycleSettings.generated.h"
 
+class UDiurnalSchedule;
+
+namespace DiurnalCycle
+{
+	/** Returns the first duplicate non-null schedule reference and both indices. */
+	DIURNALCYCLERUNTIME_API bool FindDuplicateScheduleReference(
+		const TArray<TSoftObjectPtr<UDiurnalSchedule>>& Schedules,
+		int32& OutFirstIndex,
+		int32& OutDuplicateIndex,
+		FSoftObjectPath& OutPath);
+}
+
 /**
  * Project-wide defaults used to initialize each day-night-cycle runtime.
  *
- * Mutable schedules are copied into the runtime subsystem during
- * initialization and may then diverge from these configured defaults.
+ * Clock defaults remain here. Authored schedules normally live in reusable
+ * UDiurnalSchedule assets.
  */
 UCLASS(
 	Config = Game,
@@ -93,35 +105,15 @@ public:
 
 #pragma endregion
 
-#pragma region Events
+#pragma region Schedule
 
-	/**
-	 * Initial daily and dated events copied into the runtime schedule.
-	 *
-	 * Event tags must be valid and unique. Runtime systems may subsequently add
-	 * or remove events independently of these configured defaults.
-	 */
+	/** Ordered authored schedule layers used by new runtime instances. */
 	UPROPERTY(
 		Config,
 		EditAnywhere,
-		Category = "Events")
-	TArray<FDiurnalTimeEvent> TimeEvents;
-
-#pragma endregion
-
-#pragma region TimeRanges
-
-	/**
-	 * Initial recurring ranges copied into the runtime schedule.
-	 *
-	 * Range tags must be valid and unique. Ranges may overlap and may wrap
-	 * across midnight. Runtime systems may subsequently add or remove ranges.
-	 */
-	UPROPERTY(
-		Config,
-		EditAnywhere,
-		Category = "Time Ranges")
-	TArray<FDiurnalTimeRange> TimeRanges;
+		Category = "Schedule",
+		meta = (AllowedClasses = "/Script/DiurnalCycleRuntime.DiurnalSchedule"))
+	TArray<TSoftObjectPtr<UDiurnalSchedule>> DefaultSchedules;
 
 #pragma endregion
 

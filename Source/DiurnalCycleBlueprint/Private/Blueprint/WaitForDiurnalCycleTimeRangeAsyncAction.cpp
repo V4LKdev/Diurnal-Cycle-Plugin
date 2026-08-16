@@ -2,6 +2,8 @@
 
 #include "Subsystem/DiurnalCycleSubsystem.h"
 
+// Session-scoped Blueprint async adapter.
+
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -77,12 +79,8 @@ void UWaitForDiurnalCycleTimeRangeAsyncAction::Activate()
 	UDiurnalCycleSubsystem* Subsystem =
 		ResolveSubsystem();
 
-	FDiurnalTimeRange TargetRange;
-
 	if (!Subsystem
-		|| !Subsystem->TryGetTimeRange(
-			TargetRangeTag,
-			TargetRange))
+		|| !Subsystem->HasTimeRange(TargetRangeTag))
 	{
 		FinishFailed();
 		return;
@@ -178,16 +176,17 @@ HandleTimeRangeEntered(
 	const FDiurnalTimeRange& TimeRange,
 	const FDiurnalDateTime& CurrentDateTime)
 {
-	if (TimeRange.RangeTag
-		!= TargetRangeTag)
+	if (!TimeRange.HasTagExact(TargetRangeTag))
 	{
 		return;
 	}
 
-	bTargetWasActive =
-		true;
+	const UDiurnalCycleSubsystem* Subsystem = NativeSubsystem.Get();
+	const bool bIsNowActive = Subsystem && Subsystem->IsCurrentTimeInRange(TargetRangeTag);
+	const bool bEnteredAggregate = !bTargetWasActive && bIsNowActive;
+	bTargetWasActive = bIsNowActive;
 
-	if (Mode == EWaitMode::Enter)
+	if (Mode == EWaitMode::Enter && bEnteredAggregate)
 	{
 		FinishCompleted(
 			TimeRange,
@@ -200,16 +199,17 @@ HandleTimeRangeExited(
 	const FDiurnalTimeRange& TimeRange,
 	const FDiurnalDateTime& CurrentDateTime)
 {
-	if (TimeRange.RangeTag
-		!= TargetRangeTag)
+	if (!TimeRange.HasTagExact(TargetRangeTag))
 	{
 		return;
 	}
 
-	bTargetWasActive =
-		false;
+	const UDiurnalCycleSubsystem* Subsystem = NativeSubsystem.Get();
+	const bool bIsNowActive = Subsystem && Subsystem->IsCurrentTimeInRange(TargetRangeTag);
+	const bool bExitedAggregate = bTargetWasActive && !bIsNowActive;
+	bTargetWasActive = bIsNowActive;
 
-	if (Mode == EWaitMode::Exit)
+	if (Mode == EWaitMode::Exit && bExitedAggregate)
 	{
 		FinishCompleted(
 			TimeRange,
@@ -221,8 +221,7 @@ void UWaitForDiurnalCycleTimeRangeAsyncAction::
 HandleTimeRangeRemoved(
 	const FDiurnalTimeRange& TimeRange)
 {
-	if (TimeRange.RangeTag
-		!= TargetRangeTag)
+	if (!TimeRange.HasTagExact(TargetRangeTag))
 	{
 		return;
 	}
@@ -238,7 +237,11 @@ HandleTimeRangeRemoved(
 		return;
 	}
 
-	FinishInvalidated();
+	const UDiurnalCycleSubsystem* Subsystem = NativeSubsystem.Get();
+	if (!Subsystem || !Subsystem->HasTimeRange(TargetRangeTag))
+	{
+		FinishInvalidated();
+	}
 }
 
 void UWaitForDiurnalCycleTimeRangeAsyncAction::

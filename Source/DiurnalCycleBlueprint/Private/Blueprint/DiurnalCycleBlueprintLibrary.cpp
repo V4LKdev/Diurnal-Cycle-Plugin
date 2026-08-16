@@ -1,6 +1,8 @@
 ﻿#include "Blueprint/DiurnalCycleBlueprintLibrary.h"
 
 #include "Blueprint/DiurnalCycleBlueprintSubsystem.h"
+
+// Blueprint adapters remain thin delegates to the authoritative runtime subsystem.
 #include "Subsystem/DiurnalCycleWorldSubsystem.h"
 #include "Subsystem/DiurnalCycleSubsystem.h"
 
@@ -405,29 +407,6 @@ GetDayNightCycleEvents(
 }
 
 bool UDiurnalCycleBlueprintLibrary::
-GetDayNightCycleEvent(
-	const UObject* WorldContextObject,
-	const FGameplayTag EventTag,
-	FDiurnalTimeEvent& OutTimeEvent)
-{
-	const UDiurnalCycleSubsystem* Subsystem =
-		ResolveSubsystem(
-			WorldContextObject);
-
-	if (!Subsystem)
-	{
-		OutTimeEvent =
-			FDiurnalTimeEvent{};
-
-		return false;
-	}
-
-	return Subsystem->TryGetTimeEvent(
-		EventTag,
-		OutTimeEvent);
-}
-
-bool UDiurnalCycleBlueprintLibrary::
 HasDayNightCycleEvent(
 	const UObject* WorldContextObject,
 	const FGameplayTag EventTag)
@@ -439,6 +418,43 @@ HasDayNightCycleEvent(
 	return Subsystem
 		&& Subsystem->HasTimeEvent(
 			EventTag);
+}
+
+TArray<FDiurnalResolvedTimeEvent> UDiurnalCycleBlueprintLibrary::
+FindDayNightCycleEventsByTag(
+	const UObject* WorldContextObject,
+	const FGameplayTag EventTag)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem
+		? Subsystem->FindTimeEventsByTag(EventTag)
+		: TArray<FDiurnalResolvedTimeEvent>{};
+}
+
+TArray<FDiurnalResolvedTimeEvent> UDiurnalCycleBlueprintLibrary::
+FindDayNightCycleEventsByTagQuery(
+	const UObject* WorldContextObject,
+	const FGameplayTagQuery& TagQuery)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem
+		? Subsystem->FindTimeEventsByTagQuery(TagQuery)
+		: TArray<FDiurnalResolvedTimeEvent>{};
+}
+
+bool UDiurnalCycleBlueprintLibrary::
+GetDayNightCycleEventByReference(
+	const UObject* WorldContextObject,
+	const FDiurnalScheduleEntryReference& Reference,
+	FDiurnalResolvedTimeEvent& OutTimeEvent)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	if (!Subsystem)
+	{
+		OutTimeEvent = {};
+		return false;
+	}
+	return Subsystem->TryGetTimeEvent(Reference, OutTimeEvent);
 }
 
 bool UDiurnalCycleBlueprintLibrary::
@@ -456,17 +472,36 @@ AddDayNightCycleEvent(
 }
 
 bool UDiurnalCycleBlueprintLibrary::
-RemoveDayNightCycleEvent(
+AddDayNightCycleEventWithReference(
+	const UObject* WorldContextObject,
+	const FDiurnalTimeEvent& TimeEvent,
+	FDiurnalScheduleEntryReference& OutReference)
+{
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	if (!Subsystem)
+	{
+		OutReference = {};
+		return false;
+	}
+	return Subsystem->TryAddTimeEvent(TimeEvent, OutReference);
+}
+
+bool UDiurnalCycleBlueprintLibrary::
+RemoveDayNightCycleEventByReference(
+	const UObject* WorldContextObject,
+	const FDiurnalScheduleEntryReference& Reference)
+{
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem && Subsystem->RemoveTimeEvent(Reference);
+}
+
+int32 UDiurnalCycleBlueprintLibrary::
+RemoveDayNightCycleEventsMatchingTag(
 	const UObject* WorldContextObject,
 	const FGameplayTag EventTag)
 {
-	UDiurnalCycleSubsystem* Subsystem =
-		ResolveSubsystem(
-			WorldContextObject);
-
-	return Subsystem
-		&& Subsystem->RemoveTimeEvent(
-			EventTag);
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem ? Subsystem->RemoveTimeEventsByTag(EventTag) : 0;
 }
 
 bool UDiurnalCycleBlueprintLibrary::
@@ -518,35 +553,45 @@ GetNextDayNightCycleEventOccurrence(
 		OutOccurrenceTime);
 }
 
-FDiurnalTimeEvent
-UDiurnalCycleBlueprintLibrary::
-MakeDailyTimeEvent(
-	const FGameplayTag EventTag,
-	const FDiurnalTimeOfDay& TimeOfDay,
-	const EDiurnalTimeEventBehavior Behavior)
+bool UDiurnalCycleBlueprintLibrary::
+GetNextDayNightCycleEventOccurrenceByReference(
+	const UObject* WorldContextObject,
+	const FDiurnalScheduleEntryReference& Reference,
+	FDiurnalDateTime& OutOccurrenceTime)
 {
-	return FDiurnalTimeEvent(
-		EventTag,
-		TimeOfDay,
-		false,
-		1,
-		Behavior);
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	if (!Subsystem)
+	{
+		OutOccurrenceTime = {};
+		return false;
+	}
+	return Subsystem->TryGetNextOccurrence(Reference, OutOccurrenceTime);
 }
 
 FDiurnalTimeEvent
 UDiurnalCycleBlueprintLibrary::
-MakeDatedTimeEvent(
+MakeOnceTimeEvent(
 	const FGameplayTag EventTag,
-	const int32 EventDay,
+	const int32 AnchorDay,
 	const FDiurnalTimeOfDay& TimeOfDay,
 	const EDiurnalTimeEventBehavior Behavior)
 {
 	return FDiurnalTimeEvent(
 		EventTag,
 		TimeOfDay,
-		true,
-		EventDay,
+		FDiurnalRecurrence::Once(AnchorDay),
 		Behavior);
+}
+
+FDiurnalTimeEvent UDiurnalCycleBlueprintLibrary::MakeRepeatingTimeEvent(
+	const FGameplayTag EventTag,
+	const int32 AnchorDay,
+	const int32 IntervalDays,
+	const FDiurnalTimeOfDay& TimeOfDay,
+	const EDiurnalTimeEventBehavior Behavior)
+{
+	return FDiurnalTimeEvent(EventTag, TimeOfDay,
+		FDiurnalRecurrence::Repeating(AnchorDay, IntervalDays), Behavior);
 }
 
 bool UDiurnalCycleBlueprintLibrary::
@@ -587,29 +632,6 @@ GetDayNightCycleTimeRanges(
 }
 
 bool UDiurnalCycleBlueprintLibrary::
-GetDayNightCycleTimeRange(
-	const UObject* WorldContextObject,
-	const FGameplayTag RangeTag,
-	FDiurnalTimeRange& OutTimeRange)
-{
-	const UDiurnalCycleSubsystem* Subsystem =
-		ResolveSubsystem(
-			WorldContextObject);
-
-	if (!Subsystem)
-	{
-		OutTimeRange =
-			FDiurnalTimeRange{};
-
-		return false;
-	}
-
-	return Subsystem->TryGetTimeRange(
-		RangeTag,
-		OutTimeRange);
-}
-
-bool UDiurnalCycleBlueprintLibrary::
 HasDayNightCycleTimeRange(
 	const UObject* WorldContextObject,
 	const FGameplayTag RangeTag)
@@ -621,6 +643,43 @@ HasDayNightCycleTimeRange(
 	return Subsystem
 		&& Subsystem->HasTimeRange(
 			RangeTag);
+}
+
+TArray<FDiurnalResolvedTimeRange> UDiurnalCycleBlueprintLibrary::
+FindDayNightCycleTimeRangesByTag(
+	const UObject* WorldContextObject,
+	const FGameplayTag RangeTag)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem
+		? Subsystem->FindTimeRangesByTag(RangeTag)
+		: TArray<FDiurnalResolvedTimeRange>{};
+}
+
+TArray<FDiurnalResolvedTimeRange> UDiurnalCycleBlueprintLibrary::
+FindDayNightCycleTimeRangesByTagQuery(
+	const UObject* WorldContextObject,
+	const FGameplayTagQuery& TagQuery)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem
+		? Subsystem->FindTimeRangesByTagQuery(TagQuery)
+		: TArray<FDiurnalResolvedTimeRange>{};
+}
+
+bool UDiurnalCycleBlueprintLibrary::
+GetDayNightCycleTimeRangeByReference(
+	const UObject* WorldContextObject,
+	const FDiurnalScheduleEntryReference& Reference,
+	FDiurnalResolvedTimeRange& OutTimeRange)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	if (!Subsystem)
+	{
+		OutTimeRange = {};
+		return false;
+	}
+	return Subsystem->TryGetTimeRange(Reference, OutTimeRange);
 }
 
 bool UDiurnalCycleBlueprintLibrary::
@@ -638,17 +697,36 @@ AddDayNightCycleTimeRange(
 }
 
 bool UDiurnalCycleBlueprintLibrary::
-RemoveDayNightCycleTimeRange(
+AddDayNightCycleTimeRangeWithReference(
+	const UObject* WorldContextObject,
+	const FDiurnalTimeRange& TimeRange,
+	FDiurnalScheduleEntryReference& OutReference)
+{
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	if (!Subsystem)
+	{
+		OutReference = {};
+		return false;
+	}
+	return Subsystem->TryAddTimeRange(TimeRange, OutReference);
+}
+
+bool UDiurnalCycleBlueprintLibrary::
+RemoveDayNightCycleTimeRangeByReference(
+	const UObject* WorldContextObject,
+	const FDiurnalScheduleEntryReference& Reference)
+{
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem && Subsystem->RemoveTimeRange(Reference);
+}
+
+int32 UDiurnalCycleBlueprintLibrary::
+RemoveDayNightCycleTimeRangesMatchingTag(
 	const UObject* WorldContextObject,
 	const FGameplayTag RangeTag)
 {
-	UDiurnalCycleSubsystem* Subsystem =
-		ResolveSubsystem(
-			WorldContextObject);
-
-	return Subsystem
-		&& Subsystem->RemoveTimeRange(
-			RangeTag);
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem ? Subsystem->RemoveTimeRangesByTag(RangeTag) : 0;
 }
 
 bool UDiurnalCycleBlueprintLibrary::
@@ -683,7 +761,7 @@ IsCurrentTimeInRange(
 
 TArray<FGameplayTag>
 UDiurnalCycleBlueprintLibrary::
-GetActiveDayNightCycleTimeRanges(
+GetActiveDayNightCycleTimeRangeTags(
 	const UObject* WorldContextObject)
 {
 	const UDiurnalCycleSubsystem* Subsystem =
@@ -691,8 +769,18 @@ GetActiveDayNightCycleTimeRanges(
 			WorldContextObject);
 
 	return Subsystem
-		? Subsystem->GetActiveTimeRanges()
+		? Subsystem->GetActiveTimeRangeTags()
 		: TArray<FGameplayTag>{};
+}
+
+TArray<FDiurnalScheduleEntryReference> UDiurnalCycleBlueprintLibrary::
+GetActiveDayNightCycleTimeRangeEntries(
+	const UObject* WorldContextObject)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem
+		? Subsystem->GetActiveTimeRangeEntries()
+		: TArray<FDiurnalScheduleEntryReference>{};
 }
 
 FDiurnalTimeRange
@@ -702,10 +790,28 @@ MakeDayNightCycleTimeRange(
 	const FDiurnalTimeOfDay& StartTime,
 	const FDiurnalTimeOfDay& EndTime)
 {
-	return FDiurnalTimeRange(
+	FDiurnalTimeRange Result(
 		RangeTag,
 		StartTime,
 		EndTime);
+	Result.Recurrence = FDiurnalRecurrence::Repeating();
+	return Result;
+}
+
+FDiurnalTimeRange UDiurnalCycleBlueprintLibrary::MakeOneOffDayNightCycleTimeRange(
+	const FGameplayTag RangeTag, const int32 Day, const FDiurnalTimeOfDay& StartTime, const FDiurnalTimeOfDay& EndTime)
+{
+	FDiurnalTimeRange Result(RangeTag, StartTime, EndTime);
+	Result.Recurrence = FDiurnalRecurrence::Once(Day);
+	return Result;
+}
+
+FDiurnalTimeRange UDiurnalCycleBlueprintLibrary::MakeRepeatingDayNightCycleTimeRange(
+	const FGameplayTag RangeTag, const int32 AnchorDay, const int32 IntervalDays, const FDiurnalTimeOfDay& StartTime, const FDiurnalTimeOfDay& EndTime)
+{
+	FDiurnalTimeRange Result(RangeTag, StartTime, EndTime);
+	Result.Recurrence = FDiurnalRecurrence::Repeating(AnchorDay, IntervalDays);
+	return Result;
 }
 
 bool UDiurnalCycleBlueprintLibrary::
@@ -733,27 +839,27 @@ IsDayNightCycleBlockedByTimeGate(
 
 TArray<FGameplayTag>
 UDiurnalCycleBlueprintLibrary::
-GetActiveDayNightCycleTimeGates(
+GetActiveDayNightCycleTimeGateTags(
 	const UObject* WorldContextObject)
 {
 	const UDiurnalCycleSubsystem* Subsystem =
 		ResolveSubsystem(
 			WorldContextObject);
 
-	TArray<FGameplayTag> Result;
+	return Subsystem ? Subsystem->GetActiveTimeGateTags() : TArray<FGameplayTag>{};
+}
 
-	if (!Subsystem)
+TArray<FDiurnalEventOccurrenceHandle> UDiurnalCycleBlueprintLibrary::
+GetActiveDayNightCycleTimeGateOccurrences(
+	const UObject* WorldContextObject)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	TArray<FDiurnalEventOccurrenceHandle> Result;
+	if (Subsystem)
 	{
-		return Result;
+		const TConstArrayView<FDiurnalEventOccurrenceHandle> Occurrences = Subsystem->GetActiveTimeGateOccurrences();
+		Result.Append(Occurrences.GetData(), Occurrences.Num());
 	}
-
-	const TConstArrayView<FGameplayTag> Gates =
-		Subsystem->GetActiveTimeGates();
-
-	Result.Append(
-		Gates.GetData(),
-		Gates.Num());
-
 	return Result;
 }
 
@@ -772,17 +878,30 @@ IsDayNightCycleTimeGateActive(
 }
 
 bool UDiurnalCycleBlueprintLibrary::
-ReleaseDayNightCycleTimeGate(
+IsDayNightCycleTimeGateOccurrenceActive(
+	const UObject* WorldContextObject,
+	const FDiurnalEventOccurrenceHandle& Occurrence)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem && Subsystem->IsTimeGateOccurrenceActive(Occurrence);
+}
+
+bool UDiurnalCycleBlueprintLibrary::
+ReleaseDayNightCycleTimeGateOccurrence(
+	const UObject* WorldContextObject,
+	const FDiurnalEventOccurrenceHandle& Occurrence)
+{
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem && Subsystem->ReleaseTimeGate(Occurrence);
+}
+
+int32 UDiurnalCycleBlueprintLibrary::
+ReleaseDayNightCycleTimeGatesMatchingTag(
 	const UObject* WorldContextObject,
 	const FGameplayTag GateTag)
 {
-	UDiurnalCycleSubsystem* Subsystem =
-		ResolveSubsystem(
-			WorldContextObject);
-
-	return Subsystem
-		&& Subsystem->ReleaseTimeGate(
-			GateTag);
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem ? Subsystem->ReleaseTimeGatesByTag(GateTag) : 0;
 }
 
 int32 UDiurnalCycleBlueprintLibrary::
@@ -837,6 +956,34 @@ RestoreDayNightCycleState(
 	return Subsystem
 		&& Subsystem->TryRestoreState(
 			State);
+}
+
+bool UDiurnalCycleBlueprintLibrary::CaptureDayNightCycleClockState(const UObject* WorldContextObject, FDiurnalClockState& OutState)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	if (!Subsystem) { OutState = {}; return false; }
+	OutState = Subsystem->CaptureClockState();
+	return true;
+}
+
+bool UDiurnalCycleBlueprintLibrary::RestoreDayNightCycleClockState(const UObject* WorldContextObject, const FDiurnalClockState& State)
+{
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem && Subsystem->TryRestoreClockState(State);
+}
+
+bool UDiurnalCycleBlueprintLibrary::CaptureDayNightCycleScheduleState(const UObject* WorldContextObject, FDiurnalScheduleRuntimeState& OutState)
+{
+	const UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	if (!Subsystem) { OutState = {}; return false; }
+	OutState = Subsystem->CaptureScheduleState();
+	return true;
+}
+
+bool UDiurnalCycleBlueprintLibrary::RestoreDayNightCycleScheduleState(const UObject* WorldContextObject, const FDiurnalScheduleRuntimeState& State)
+{
+	UDiurnalCycleSubsystem* Subsystem = ResolveSubsystem(WorldContextObject);
+	return Subsystem && Subsystem->TryRestoreScheduleState(State);
 }
 
 #pragma endregion

@@ -2,6 +2,8 @@
 
 #include "Subsystem/DiurnalCycleSubsystem.h"
 
+// Session-scoped Blueprint async adapter.
+
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -86,6 +88,15 @@ void UWaitForDiurnalCycleTimeGateAsyncAction::Activate()
 	NativeSubsystem =
 		Subsystem;
 
+	const TArray<FDiurnalResolvedTimeEvent> MatchingEvents = Subsystem->FindTimeEventsByTag(TargetGateTag);
+	const bool bHasBlockingEvent = MatchingEvents.ContainsByPredicate(
+		[](const FDiurnalResolvedTimeEvent& Event) { return Event.Event.IsBlocking(); });
+	if (!bHasBlockingEvent)
+	{
+		FinishFailed();
+		return;
+	}
+
 	if (Mode == EWaitMode::Activation)
 	{
 		if (Subsystem->IsTimeGateActive(
@@ -110,6 +121,18 @@ void UWaitForDiurnalCycleTimeGateAsyncAction::Activate()
 		FinishFailed();
 		return;
 	}
+	else
+	{
+		for (const FDiurnalEventOccurrenceHandle& Occurrence : Subsystem->GetActiveTimeGateOccurrences())
+		{
+			FDiurnalResolvedTimeEvent Event;
+			if (Subsystem->TryGetTimeEvent(Occurrence.Entry, Event)
+				&& Event.Event.HasTagExact(TargetGateTag))
+			{
+				TargetOccurrenceIds.Add(Occurrence.OccurrenceId);
+			}
+		}
+	}
 
 	TimeGateActivatedHandle =
 		Subsystem->OnTimeGateActivated().AddUObject(
@@ -118,7 +141,7 @@ void UWaitForDiurnalCycleTimeGateAsyncAction::Activate()
 				HandleTimeGateActivated);
 
 	TimeGateReleasedHandle =
-		Subsystem->OnTimeGateReleased().AddUObject(
+		Subsystem->OnTimeGateOccurrenceReleased().AddUObject(
 			this,
 			&UWaitForDiurnalCycleTimeGateAsyncAction::
 				HandleTimeGateReleased);
@@ -185,21 +208,16 @@ bool UWaitForDiurnalCycleTimeGateAsyncAction::
 IsActivationTargetReachable(
 	const UDiurnalCycleSubsystem& Subsystem) const
 {
-	FDiurnalTimeEvent TimeEvent;
-
-	if (!Subsystem.TryGetTimeEvent(
-			TargetGateTag,
-			TimeEvent)
-		|| !TimeEvent.IsBlocking())
+	for (const FDiurnalResolvedTimeEvent& Event : Subsystem.FindTimeEventsByTag(TargetGateTag))
 	{
-		return false;
+		FDiurnalDateTime NextOccurrence;
+		if (Event.Event.IsBlocking()
+			&& Subsystem.TryGetNextOccurrence(Event.GetEntryReference(), NextOccurrence))
+		{
+			return true;
+		}
 	}
-
-	FDiurnalDateTime NextOccurrence;
-
-	return Subsystem.TryGetNextOccurrence(
-		TargetGateTag,
-		NextOccurrence);
+	return false;
 }
 
 #pragma endregion
@@ -212,8 +230,7 @@ HandleTimeGateActivated(
 	const FDiurnalDateTime& ActivationTime)
 {
 	if (Mode != EWaitMode::Activation
-		|| TimeEvent.EventTag
-			!= TargetGateTag)
+		|| !TimeEvent.HasTagExact(TargetGateTag))
 	{
 		return;
 	}
@@ -224,17 +241,19 @@ HandleTimeGateActivated(
 
 void UWaitForDiurnalCycleTimeGateAsyncAction::
 HandleTimeGateReleased(
-	const FGameplayTag GateTag,
+	const FDiurnalEventOccurrenceHandle& Occurrence,
 	const FDiurnalDateTime& ReleaseTime)
 {
 	if (Mode != EWaitMode::Release
-		|| GateTag != TargetGateTag)
+		|| !TargetOccurrenceIds.Remove(Occurrence.OccurrenceId))
 	{
 		return;
 	}
 
-	FinishCompleted(
-		ReleaseTime);
+	if (TargetOccurrenceIds.IsEmpty())
+	{
+		FinishCompleted(ReleaseTime);
+	}
 }
 
 void UWaitForDiurnalCycleTimeGateAsyncAction::
@@ -242,13 +261,16 @@ HandleTimeEventRemoved(
 	const FDiurnalTimeEvent& TimeEvent)
 {
 	if (Mode != EWaitMode::Activation
-		|| TimeEvent.EventTag
-			!= TargetGateTag)
+		|| !TimeEvent.HasTagExact(TargetGateTag))
 	{
 		return;
 	}
 
-	FinishInvalidated();
+	const UDiurnalCycleSubsystem* Subsystem = NativeSubsystem.Get();
+	if (!Subsystem || !IsActivationTargetReachable(*Subsystem))
+	{
+		FinishInvalidated();
+	}
 }
 
 void UWaitForDiurnalCycleTimeGateAsyncAction::
@@ -362,7 +384,7 @@ CleanupBindings()
 
 		if (TimeGateReleasedHandle.IsValid())
 		{
-			Subsystem->OnTimeGateReleased().Remove(
+			Subsystem->OnTimeGateOccurrenceReleased().Remove(
 				TimeGateReleasedHandle);
 		}
 
@@ -385,6 +407,7 @@ CleanupBindings()
 	TimeChangedHandle.Reset();
 
 	NativeSubsystem.Reset();
+	TargetOccurrenceIds.Reset();
 }
 
 #pragma endregion

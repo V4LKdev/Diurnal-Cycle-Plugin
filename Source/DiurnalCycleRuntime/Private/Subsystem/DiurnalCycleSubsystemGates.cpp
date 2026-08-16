@@ -1,15 +1,54 @@
-﻿#include "Subsystem/DiurnalCycleSubsystem.h"
+#include "Subsystem/DiurnalCycleSubsystem.h"
 
 #include "DiurnalCycleLog.h"
 
 #pragma region TimeGateQueries
 
-bool UDiurnalCycleSubsystem::IsTimeGateActive(
-	const FGameplayTag GateTag) const
+TArray<FGameplayTag> UDiurnalCycleSubsystem::GetActiveTimeGateTags() const
 {
-	return GateTag.IsValid()
-		&& ActiveTimeGates.Contains(
-			GateTag);
+	TArray<FGameplayTag> Result;
+	for (const FDiurnalEventOccurrenceHandle& Occurrence : ActiveTimeGateOccurrences)
+	{
+		FDiurnalResolvedTimeEvent Resolved;
+		if (!TryGetTimeEvent(Occurrence.Entry, Resolved))
+		{
+			continue;
+		}
+		for (const FGameplayTag Tag : Resolved.Event.EventTags.GetGameplayTagArray())
+		{
+			Result.AddUnique(Tag);
+		}
+	}
+	return Result;
+}
+
+bool UDiurnalCycleSubsystem::IsTimeGateActive(const FGameplayTag GateTag) const
+{
+	if (!GateTag.IsValid())
+	{
+		return false;
+	}
+	for (const FDiurnalEventOccurrenceHandle& Occurrence : ActiveTimeGateOccurrences)
+	{
+		FDiurnalResolvedTimeEvent Resolved;
+		if (TryGetTimeEvent(Occurrence.Entry, Resolved)
+			&& Resolved.Event.HasTagExact(GateTag))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool UDiurnalCycleSubsystem::IsTimeGateOccurrenceActive(
+	const FDiurnalEventOccurrenceHandle& Occurrence) const
+{
+	return Occurrence.IsValid()
+		&& ActiveTimeGateOccurrences.ContainsByPredicate(
+			[&Occurrence](const FDiurnalEventOccurrenceHandle& Active)
+			{
+				return Active.OccurrenceId == Occurrence.OccurrenceId;
+			});
 }
 
 #pragma endregion
@@ -17,240 +56,191 @@ bool UDiurnalCycleSubsystem::IsTimeGateActive(
 #pragma region TimeGateControl
 
 bool UDiurnalCycleSubsystem::ReleaseTimeGate(
-	const FGameplayTag GateTag)
+	const FDiurnalEventOccurrenceHandle& Occurrence)
 {
-	if (!GateTag.IsValid())
-	{
-		return false;
-	}
-
-	const int32 GateIndex =
-		ActiveTimeGates.IndexOfByKey(
-			GateTag);
-
+	const int32 GateIndex = ActiveTimeGateOccurrences.IndexOfByPredicate(
+		[&Occurrence](const FDiurnalEventOccurrenceHandle& Active)
+		{
+			return Active.OccurrenceId == Occurrence.OccurrenceId;
+		});
 	if (GateIndex == INDEX_NONE)
 	{
 		return false;
 	}
 
-	ActiveTimeGates.RemoveAt(
-		GateIndex);
-
-	const FDiurnalDateTime ReleaseTime =
-		GetDateTime();
-
+	const FDiurnalEventOccurrenceHandle Released = ActiveTimeGateOccurrences[GateIndex];
+	ActiveTimeGateOccurrences.RemoveAt(GateIndex);
+	const FDiurnalDateTime ReleaseTime = GetDateTime();
 	UE_LOG(
 		LogDiurnalCycle,
 		Verbose,
-		TEXT(
-			"Released time gate '%s' at %s | Remaining: %d."),
-		*GateTag.ToString(),
+		TEXT("Released time gate occurrence '%s' at %s | Remaining: %d."),
+		*Released.OccurrenceId.ToString(EGuidFormats::DigitsWithHyphensInBraces),
 		*ReleaseTime.ToString(),
-		ActiveTimeGates.Num());
+		ActiveTimeGateOccurrences.Num());
 
-	TimeGateReleasedEvent.Broadcast(
-		GateTag,
-		ReleaseTime);
-
+	TimeGateOccurrenceReleasedEvent.Broadcast(Released, ReleaseTime);
 	return true;
+}
+
+int32 UDiurnalCycleSubsystem::ReleaseTimeGatesByTag(const FGameplayTag GateTag)
+{
+	if (!GateTag.IsValid())
+	{
+		return 0;
+	}
+	TArray<FDiurnalEventOccurrenceHandle> Matches;
+	for (const FDiurnalEventOccurrenceHandle& Occurrence : ActiveTimeGateOccurrences)
+	{
+		FDiurnalResolvedTimeEvent Resolved;
+		if (TryGetTimeEvent(Occurrence.Entry, Resolved)
+			&& Resolved.Event.HasTagExact(GateTag))
+		{
+			Matches.Add(Occurrence);
+		}
+	}
+	int32 Count = 0;
+	for (const FDiurnalEventOccurrenceHandle& Match : Matches)
+	{
+		Count += ReleaseTimeGate(Match) ? 1 : 0;
+	}
+	return Count;
 }
 
 int32 UDiurnalCycleSubsystem::ReleaseAllTimeGates()
 {
-	if (ActiveTimeGates.IsEmpty())
+	if (ActiveTimeGateOccurrences.IsEmpty())
 	{
 		return 0;
 	}
+	const TArray<FDiurnalEventOccurrenceHandle> Released = ActiveTimeGateOccurrences;
+	ActiveTimeGateOccurrences.Reset();
+	const FDiurnalDateTime ReleaseTime = GetDateTime();
 
-	const TArray<FGameplayTag> ReleasedGates =
-		ActiveTimeGates;
-
-	ActiveTimeGates.Reset();
-
-	const FDiurnalDateTime ReleaseTime =
-		GetDateTime();
-
-	UE_LOG(
-		LogDiurnalCycle,
-		Verbose,
-		TEXT(
-			"Released all %d time gates at %s."),
-		ReleasedGates.Num(),
-		*ReleaseTime.ToString());
-
-	for (const FGameplayTag GateTag :
-		 ReleasedGates)
+	UE_LOG(LogDiurnalCycle, Verbose, TEXT("Released all %d time gates at %s."), Released.Num(), *ReleaseTime.ToString());
+	for (const FDiurnalEventOccurrenceHandle& Occurrence : Released)
 	{
-		TimeGateReleasedEvent.Broadcast(
-			GateTag,
-			ReleaseTime);
+		TimeGateOccurrenceReleasedEvent.Broadcast(Occurrence, ReleaseTime);
 	}
-
-	return ReleasedGates.Num();
+	return Released.Num();
 }
 
 #pragma endregion
 
 #pragma region TimeGateProcessing
 
-TArray<FGameplayTag>
-UDiurnalCycleSubsystem::GetScheduledTimeGatesAt(
+TArray<FDiurnalEventOccurrenceHandle> UDiurnalCycleSubsystem::GetScheduledTimeGatesAt(
 	const FDiurnalDateTime& DateTime) const
 {
-	checkf(
-		DateTime.IsValid(),
-		TEXT(
-			"GetScheduledTimeGatesAt requires "
-			"a valid date-time."));
-
-	const FDiurnalTimeOfDay TimeOfDay =
-		DateTime.GetTimeOfDay();
-
-	TArray<FGameplayTag> Result;
-
-	for (const FDiurnalTimeEvent& Event :
-		 TimeEvents)
+	checkf(DateTime.IsValid(), TEXT("GetScheduledTimeGatesAt requires a valid date-time."));
+	TArray<FDiurnalEventOccurrenceHandle> Result;
+	const FDiurnalTimeOfDay TimeOfDay = DateTime.GetTimeOfDay();
+	for (const FDiurnalResolvedTimeEvent& Resolved : ResolvedTimeEvents)
 	{
+		const FDiurnalTimeEvent& Event = Resolved.Event;
 		if (!Event.IsBlocking()
-			|| !Event.OccursOnDay(
-				DateTime.Day)
-			|| Event.TimeOfDay
-				!= TimeOfDay)
+			|| !Event.OccursOnDay(DateTime.Day)
+			|| Event.TimeOfDay != TimeOfDay)
 		{
 			continue;
 		}
-
-		Result.Add(
-			Event.EventTag);
+		FDiurnalEventOccurrenceHandle& Handle = Result.AddDefaulted_GetRef();
+		Handle.Entry = Resolved.GetEntryReference();
+		Handle.OccurrenceTime = DateTime;
+		Handle.OccurrenceId = FGuid::NewGuid();
 	}
-
 	return Result;
 }
 
 void UDiurnalCycleSubsystem::SetActiveTimeGates(
-	const TArray<FGameplayTag>& NewActiveTimeGates,
+	const TArray<FDiurnalEventOccurrenceHandle>& NewActiveTimeGates,
 	const FDiurnalDateTime& TransitionTime,
 	const bool bBroadcastTransitions)
 {
-	checkf(
-		TransitionTime.IsValid(),
-		TEXT(
-			"SetActiveTimeGates requires "
-			"a valid transition time."));
-
-	TArray<FGameplayTag> ValidatedNewGates;
-
-	ValidatedNewGates.Reserve(
-		NewActiveTimeGates.Num());
-
-	for (const FGameplayTag GateTag :
-		 NewActiveTimeGates)
+	checkf(TransitionTime.IsValid(), TEXT("SetActiveTimeGates requires a valid transition time."));
+	TArray<FDiurnalEventOccurrenceHandle> ValidatedNewGates;
+	for (const FDiurnalEventOccurrenceHandle& Candidate : NewActiveTimeGates)
 	{
-		if (!GateTag.IsValid()
-			|| ValidatedNewGates.Contains(
-				GateTag))
+		FDiurnalResolvedTimeEvent GateEvent;
+		if (!Candidate.IsValid()
+			|| Candidate.OccurrenceTime != TransitionTime
+			|| !TryGetTimeEvent(Candidate.Entry, GateEvent)
+			|| !GateEvent.Event.IsBlocking()
+			|| !GateEvent.Event.OccursOnDay(TransitionTime.Day)
+			|| GateEvent.Event.TimeOfDay != TransitionTime.GetTimeOfDay())
+		{
+			ensureMsgf(false, TEXT("Attempted to activate an invalid time-gate occurrence."));
+			continue;
+		}
+
+		if (ValidatedNewGates.ContainsByPredicate(
+			[&Candidate](const FDiurnalEventOccurrenceHandle& Existing)
+			{
+				return Existing.Entry == Candidate.Entry;
+			}))
 		{
 			continue;
 		}
 
-		const FDiurnalTimeEvent* GateEvent =
-			TimeEvents.FindByPredicate(
-				[GateTag](
-					const FDiurnalTimeEvent& Event)
-				{
-					return Event.EventTag
-							== GateTag
-						&& Event.IsBlocking();
-				});
-
-		if (!ensureMsgf(
-				GateEvent,
-				TEXT(
-					"Attempted to activate invalid time gate '%s'."),
-				*GateTag.ToString()))
-		{
-			continue;
-		}
-
-		ValidatedNewGates.Add(
-			GateTag);
+		const FDiurnalEventOccurrenceHandle* ExistingOccurrence = ActiveTimeGateOccurrences.FindByPredicate(
+			[&Candidate](const FDiurnalEventOccurrenceHandle& Existing)
+			{
+				return Existing.Entry == Candidate.Entry
+					&& Existing.OccurrenceTime == Candidate.OccurrenceTime;
+			});
+		ValidatedNewGates.Add(ExistingOccurrence ? *ExistingOccurrence : Candidate);
 	}
 
-	TArray<FGameplayTag> ReleasedGates;
-
-	for (const FGameplayTag PreviousGate :
-		 ActiveTimeGates)
+	TArray<FDiurnalEventOccurrenceHandle> ReleasedGates;
+	for (const FDiurnalEventOccurrenceHandle& Previous : ActiveTimeGateOccurrences)
 	{
-		if (!ValidatedNewGates.Contains(
-				PreviousGate))
+		if (!ValidatedNewGates.ContainsByPredicate(
+			[&Previous](const FDiurnalEventOccurrenceHandle& Current)
+			{
+				return Current.OccurrenceId == Previous.OccurrenceId;
+			}))
 		{
-			ReleasedGates.Add(
-				PreviousGate);
+			ReleasedGates.Add(Previous);
 		}
 	}
 
-	TArray<FDiurnalTimeEvent> ActivatedGates;
-
-	for (const FGameplayTag NewGate :
-		 ValidatedNewGates)
+	TArray<FDiurnalEventOccurrenceHandle> ActivatedGates;
+	for (const FDiurnalEventOccurrenceHandle& Current : ValidatedNewGates)
 	{
-		if (ActiveTimeGates.Contains(
-				NewGate))
+		if (!ActiveTimeGateOccurrences.ContainsByPredicate(
+			[&Current](const FDiurnalEventOccurrenceHandle& Previous)
+			{
+				return Previous.OccurrenceId == Current.OccurrenceId;
+			}))
 		{
-			continue;
+			ActivatedGates.Add(Current);
 		}
-
-		const FDiurnalTimeEvent* GateEvent =
-			TimeEvents.FindByPredicate(
-				[NewGate](
-					const FDiurnalTimeEvent& Event)
-				{
-					return Event.EventTag
-						== NewGate;
-				});
-
-		check(GateEvent);
-
-		ActivatedGates.Add(
-			*GateEvent);
 	}
 
-	/*
-	 * Commit the complete new gate set before callbacks so every listener sees
-	 * the final state, even when several gates transition together.
-	 */
-	ActiveTimeGates =
-		MoveTemp(
-			ValidatedNewGates);
-
+	ActiveTimeGateOccurrences = MoveTemp(ValidatedNewGates);
 	if (!bBroadcastTransitions)
 	{
 		return;
 	}
 
-	for (const FGameplayTag ReleasedGate :
-		 ReleasedGates)
+	for (const FDiurnalEventOccurrenceHandle& Released : ReleasedGates)
 	{
-		TimeGateReleasedEvent.Broadcast(
-			ReleasedGate,
-			TransitionTime);
+		TimeGateOccurrenceReleasedEvent.Broadcast(Released, TransitionTime);
 	}
-
-	for (const FDiurnalTimeEvent& ActivatedGate :
-		 ActivatedGates)
+	for (const FDiurnalEventOccurrenceHandle& Activated : ActivatedGates)
 	{
+		FDiurnalResolvedTimeEvent Event;
+		check(TryGetTimeEvent(Activated.Entry, Event));
 		UE_LOG(
 			LogDiurnalCycle,
 			Verbose,
-			TEXT(
-				"Activated time gate '%s' at %s | Active: %d."),
-			*ActivatedGate.EventTag.ToString(),
+			TEXT("Activated time gate '%s' (%s) at %s | Active: %d."),
+			*Event.Event.GetDisplayName().ToString(),
+			*Activated.OccurrenceId.ToString(EGuidFormats::DigitsWithHyphensInBraces),
 			*TransitionTime.ToString(),
-			ActiveTimeGates.Num());
-
-		TimeGateActivatedEvent.Broadcast(
-			ActivatedGate,
-			TransitionTime);
+			ActiveTimeGateOccurrences.Num());
+		TimeGateOccurrenceActivatedEvent.Broadcast(Activated, Event.Event);
+		TimeGateActivatedEvent.Broadcast(Event.Event, TransitionTime);
 	}
 }
 
@@ -259,58 +249,30 @@ bool UDiurnalCycleSubsystem::TryFindFirstBlockingOccurrence(
 	const double RequestedHours,
 	double& OutOccurrenceHours) const
 {
-	checkf(
-		RequestedHours >= PreviousHours,
-		TEXT(
-			"TryFindFirstBlockingOccurrence requires forward time."));
-
-	double BestOccurrenceHours =
-		TNumericLimits<double>::Max();
-
-	bool bFoundBlockingOccurrence =
-		false;
-
-	for (const FDiurnalTimeEvent& Event :
-		 TimeEvents)
+	OutOccurrenceHours = 0.0;
+	checkf(RequestedHours >= PreviousHours, TEXT("TryFindFirstBlockingOccurrence requires forward time."));
+	double BestOccurrenceHours = TNumericLimits<double>::Max();
+	bool bFoundBlockingOccurrence = false;
+	for (const FDiurnalTimeEvent& Event : TimeEvents)
 	{
 		if (!Event.IsBlocking())
 		{
 			continue;
 		}
-
 		double OccurrenceHours = 0.0;
-
-		if (!TryGetNextOccurrenceHours(
-				Event,
-				PreviousHours,
-				OccurrenceHours))
+		if (TryGetNextOccurrenceHours(Event, PreviousHours, OccurrenceHours)
+			&& OccurrenceHours <= RequestedHours
+			&& OccurrenceHours < BestOccurrenceHours)
 		{
-			continue;
+			BestOccurrenceHours = OccurrenceHours;
+			bFoundBlockingOccurrence = true;
 		}
-
-		if (OccurrenceHours
-				> RequestedHours
-			|| OccurrenceHours
-				>= BestOccurrenceHours)
-		{
-			continue;
-		}
-
-		BestOccurrenceHours =
-			OccurrenceHours;
-
-		bFoundBlockingOccurrence =
-			true;
 	}
-
 	if (!bFoundBlockingOccurrence)
 	{
 		return false;
 	}
-
-	OutOccurrenceHours =
-		BestOccurrenceHours;
-
+	OutOccurrenceHours = BestOccurrenceHours;
 	return true;
 }
 

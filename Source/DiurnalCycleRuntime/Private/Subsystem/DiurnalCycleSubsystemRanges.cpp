@@ -1,183 +1,253 @@
-﻿#include "Subsystem/DiurnalCycleSubsystem.h"
+#include "Subsystem/DiurnalCycleSubsystem.h"
 
 #include "DiurnalCycleLog.h"
 
 #pragma region TimeRangeSchedule
 
-bool UDiurnalCycleSubsystem::TryGetTimeRange(
-	const FGameplayTag RangeTag,
-	FDiurnalTimeRange& OutTimeRange) const
+TArray<FDiurnalResolvedTimeRange> UDiurnalCycleSubsystem::FindTimeRangesByTag(
+	const FGameplayTag RangeTag) const
 {
+	TArray<FDiurnalResolvedTimeRange> Result;
 	if (!RangeTag.IsValid())
 	{
-		return false;
+		return Result;
 	}
+	for (const FDiurnalResolvedTimeRange& Resolved : ResolvedTimeRanges)
+	{
+		if (Resolved.Range.HasTagExact(RangeTag))
+		{
+			Result.Add(Resolved);
+		}
+	}
+	return Result;
+}
 
-	const FDiurnalTimeRange* TimeRange =
-		TimeRanges.FindByPredicate(
-			[RangeTag](
-				const FDiurnalTimeRange& Candidate)
-			{
-				return Candidate.RangeTag
-					== RangeTag;
-			});
+TArray<FDiurnalResolvedTimeRange> UDiurnalCycleSubsystem::FindTimeRangesByTagQuery(
+	const FGameplayTagQuery& TagQuery) const
+{
+	TArray<FDiurnalResolvedTimeRange> Result;
+	for (const FDiurnalResolvedTimeRange& Resolved : ResolvedTimeRanges)
+	{
+		if (TagQuery.IsEmpty() || TagQuery.Matches(Resolved.Range.RangeTags))
+		{
+			Result.Add(Resolved);
+		}
+	}
+	return Result;
+}
 
-	if (!TimeRange)
+bool UDiurnalCycleSubsystem::TryGetTimeRange(
+	const FDiurnalScheduleEntryReference& Reference,
+	FDiurnalResolvedTimeRange& OutTimeRange) const
+{
+	OutTimeRange = {};
+	if (!Reference.IsValid())
 	{
 		return false;
 	}
-
-	OutTimeRange =
-		*TimeRange;
-
+	const FDiurnalResolvedTimeRange* Match = ResolvedTimeRanges.FindByPredicate(
+		[&Reference](const FDiurnalResolvedTimeRange& Candidate)
+		{
+			return Candidate.GetEntryReference() == Reference;
+		});
+	if (!Match)
+	{
+		return false;
+	}
+	OutTimeRange = *Match;
 	return true;
 }
 
-bool UDiurnalCycleSubsystem::HasTimeRange(
-	const FGameplayTag RangeTag) const
+bool UDiurnalCycleSubsystem::HasTimeRange(const FGameplayTag RangeTag) const
 {
-	if (!RangeTag.IsValid())
-	{
-		return false;
-	}
+	return RangeTag.IsValid()
+		&& ResolvedTimeRanges.ContainsByPredicate(
+			[RangeTag](const FDiurnalResolvedTimeRange& Resolved)
+			{
+				return Resolved.Range.HasTagExact(RangeTag);
+			});
+}
 
-	return TimeRanges.ContainsByPredicate(
-		[RangeTag](
-			const FDiurnalTimeRange& Range)
-		{
-			return Range.RangeTag
-				== RangeTag;
-		});
+bool UDiurnalCycleSubsystem::TryAddTimeRange(const FDiurnalTimeRange& TimeRange)
+{
+	FDiurnalScheduleEntryReference IgnoredReference;
+	return TryAddTimeRange(TimeRange, IgnoredReference);
 }
 
 bool UDiurnalCycleSubsystem::TryAddTimeRange(
-	const FDiurnalTimeRange& TimeRange)
+	const FDiurnalTimeRange& TimeRange,
+	FDiurnalScheduleEntryReference& OutReference)
 {
-	if (!TimeRange.IsValid())
+	OutReference = {};
+	FDiurnalTimeRange AddedRange = TimeRange;
+	if (!AddedRange.IsValid())
 	{
 		UE_LOG(
 			LogDiurnalCycle,
 			Warning,
-			TEXT(
-				"Rejected invalid time range '%s' "
-				"(%s -> %s)."),
-			*TimeRange.RangeTag.ToString(),
-			*TimeRange.StartTime.ToString(),
-			*TimeRange.EndTime.ToString());
-
+			TEXT("Rejected invalid time range '%s' (%s -> %s)."),
+			*AddedRange.GetDisplayName().ToString(),
+			*AddedRange.StartTime.ToString(),
+			*AddedRange.EndTime.ToString());
 		return false;
 	}
 
-	if (HasTimeRange(
-			TimeRange.RangeTag))
+	if (AddedRange.RangeName.IsNone())
 	{
-		UE_LOG(
-			LogDiurnalCycle,
-			Warning,
-			TEXT(
-				"Rejected time range '%s' because "
-				"range tags must be unique."),
-			*TimeRange.RangeTag.ToString());
-
-		return false;
+		const FGameplayTag FirstTag = AddedRange.GetPrimaryTag();
+		AddedRange.RangeName = FirstTag.IsValid()
+			? FirstTag.GetTagLeafName()
+			: FName(TEXT("Runtime Range"));
 	}
 
-	const FDiurnalTimeOfDay CurrentTimeOfDay =
-		GetTimeOfDay();
+	const auto IdCollides = [this](const FGuid& EntryId)
+	{
+		return ResolvedTimeRanges.ContainsByPredicate(
+			[EntryId](const FDiurnalResolvedTimeRange& Existing)
+			{
+				return Existing.SourceSchedule.IsNull()
+					&& Existing.Range.EntryId == EntryId;
+			});
+	};
+	if (!AddedRange.EntryId.IsValid() || IdCollides(AddedRange.EntryId))
+	{
+		do
+		{
+			AddedRange.EntryId = FGuid::NewGuid();
+		}
+		while (IdCollides(AddedRange.EntryId));
+	}
 
-	const TArray<FDiurnalTimeRange>
-		PreviousActiveRanges =
-			GetActiveTimeRangeDefinitions(
-				CurrentTimeOfDay);
-
-	const FDiurnalTimeRange AddedRange =
-		TimeRange;
-
-	TimeRanges.Add(
-		AddedRange);
-
-	UE_LOG(
-		LogDiurnalCycle,
-		Verbose,
-		TEXT(
-			"Added time range '%s' (%s -> %s)."),
-		*AddedRange.RangeTag.ToString(),
-		*AddedRange.StartTime.ToString(),
-		*AddedRange.EndTime.ToString());
-
-	TimeRangeAddedEvent.Broadcast(
-		AddedRange);
-
-	const TArray<FDiurnalTimeRange>
-		CurrentActiveRanges =
-			GetActiveTimeRangeDefinitions(
-				CurrentTimeOfDay);
-
-	BroadcastTimeRangeTransitions(
-		PreviousActiveRanges,
-		CurrentActiveRanges,
-		GetDateTime());
-
+	RuntimeTimeRanges.Add(AddedRange);
+	if (!RebuildCompiledSchedule(true))
+	{
+		RuntimeTimeRanges.Pop();
+		return false;
+	}
+	OutReference.EntryId = AddedRange.EntryId;
 	return true;
 }
 
 bool UDiurnalCycleSubsystem::RemoveTimeRange(
-	const FGameplayTag RangeTag)
+	const FDiurnalScheduleEntryReference& Reference)
+{
+	FDiurnalResolvedTimeRange Resolved;
+	if (!TryGetTimeRange(Reference, Resolved))
+	{
+		return false;
+	}
+	const int32 RuntimeIndex = Resolved.bRuntimeAdded
+		? RuntimeTimeRanges.IndexOfByPredicate(
+			[&Reference](const FDiurnalTimeRange& Range)
+			{
+				return Range.EntryId == Reference.EntryId;
+			})
+		: INDEX_NONE;
+	FDiurnalTimeRange RemovedRuntimeRange;
+	if (RuntimeIndex != INDEX_NONE)
+	{
+		RemovedRuntimeRange = RuntimeTimeRanges[RuntimeIndex];
+		RuntimeTimeRanges.RemoveAt(RuntimeIndex);
+	}
+	else
+	{
+		DisabledRangeEntries.AddUnique(Reference);
+	}
+
+	if (!RebuildCompiledSchedule(true))
+	{
+		if (RuntimeIndex != INDEX_NONE)
+		{
+			RuntimeTimeRanges.Insert(RemovedRuntimeRange, RuntimeIndex);
+		}
+		else
+		{
+			DisabledRangeEntries.Remove(Reference);
+		}
+		return false;
+	}
+	return true;
+}
+
+int32 UDiurnalCycleSubsystem::RemoveTimeRangesByTag(const FGameplayTag RangeTag)
+{
+	const TArray<FDiurnalResolvedTimeRange> Matches = FindTimeRangesByTag(RangeTag);
+	if (Matches.IsEmpty()) return 0;
+	const TArray<FDiurnalTimeRange> PreviousRuntimeRanges = RuntimeTimeRanges;
+	const TArray<FDiurnalScheduleEntryReference> PreviousDisabledRanges = DisabledRangeEntries;
+	for (const FDiurnalResolvedTimeRange& Match : Matches)
+	{
+		const FDiurnalScheduleEntryReference Reference = Match.GetEntryReference();
+		if (Match.bRuntimeAdded)
+		{
+			RuntimeTimeRanges.RemoveAll([&Reference](const FDiurnalTimeRange& Range)
+			{
+				return Range.EntryId == Reference.EntryId;
+			});
+		}
+		else
+		{
+			DisabledRangeEntries.AddUnique(Reference);
+		}
+	}
+	if (!RebuildCompiledSchedule(true))
+	{
+		RuntimeTimeRanges = PreviousRuntimeRanges;
+		DisabledRangeEntries = PreviousDisabledRanges;
+		return 0;
+	}
+	return Matches.Num();
+}
+
+bool UDiurnalCycleSubsystem::ReenableTimeRange(
+	const FDiurnalScheduleEntryReference& Reference)
+{
+	if (!Reference.IsValid() || DisabledRangeEntries.Remove(Reference) == 0)
+	{
+		return false;
+	}
+	if (!RebuildCompiledSchedule(true))
+	{
+		DisabledRangeEntries.AddUnique(Reference);
+		return false;
+	}
+	return true;
+}
+
+int32 UDiurnalCycleSubsystem::ReenableTimeRangesByTag(const FGameplayTag RangeTag)
 {
 	if (!RangeTag.IsValid())
 	{
-		return false;
+		return 0;
 	}
-
-	const int32 RangeIndex =
-		TimeRanges.IndexOfByPredicate(
-			[RangeTag](
-				const FDiurnalTimeRange& Range)
-			{
-				return Range.RangeTag
-					== RangeTag;
-			});
-
-	if (RangeIndex == INDEX_NONE)
+	TArray<FDiurnalResolvedTimeEvent> IgnoredEvents;
+	TArray<FDiurnalResolvedTimeRange> AllRanges;
+	TArray<TObjectPtr<UDiurnalSchedule>> IgnoredSchedules;
+	if (!CompileScheduleLayers(ActiveScheduleReferences, RuntimeTimeEvents, RuntimeTimeRanges, DisabledEventEntries, {}, IgnoredEvents, AllRanges, IgnoredSchedules))
 	{
-		return false;
+		return 0;
 	}
-
-	const FDiurnalTimeOfDay CurrentTimeOfDay =
-		GetTimeOfDay();
-
-	const TArray<FDiurnalTimeRange>
-		PreviousActiveRanges =
-			GetActiveTimeRangeDefinitions(
-				CurrentTimeOfDay);
-
-	const FDiurnalTimeRange RemovedRange =
-		TimeRanges[RangeIndex];
-
-	TimeRanges.RemoveAt(
-		RangeIndex);
-
-	UE_LOG(
-		LogDiurnalCycle,
-		Verbose,
-		TEXT(
-			"Removed time range '%s'."),
-		*RemovedRange.RangeTag.ToString());
-
-	TimeRangeRemovedEvent.Broadcast(
-		RemovedRange);
-
-	const TArray<FDiurnalTimeRange>
-		CurrentActiveRanges =
-			GetActiveTimeRangeDefinitions(
-				CurrentTimeOfDay);
-
-	BroadcastTimeRangeTransitions(
-		PreviousActiveRanges,
-		CurrentActiveRanges,
-		GetDateTime());
-
-	return true;
+	TArray<FDiurnalScheduleEntryReference> Matches;
+	for (const FDiurnalResolvedTimeRange& Range : AllRanges)
+	{
+		const FDiurnalScheduleEntryReference Reference = Range.GetEntryReference();
+		if (DisabledRangeEntries.Contains(Reference) && Range.Range.HasTagExact(RangeTag))
+		{
+			Matches.Add(Reference);
+		}
+	}
+	if (Matches.IsEmpty()) return 0;
+	const TArray<FDiurnalScheduleEntryReference> PreviousDisabledRanges = DisabledRangeEntries;
+	for (const FDiurnalScheduleEntryReference& Reference : Matches)
+	{
+		DisabledRangeEntries.Remove(Reference);
+	}
+	if (!RebuildCompiledSchedule(true))
+	{
+		DisabledRangeEntries = PreviousDisabledRanges;
+		return 0;
+	}
+	return Matches.Num();
 }
 
 bool UDiurnalCycleSubsystem::IsTimeOfDayInRange(
@@ -188,128 +258,101 @@ bool UDiurnalCycleSubsystem::IsTimeOfDayInRange(
 	{
 		return false;
 	}
-
-	FDiurnalTimeRange TimeRange;
-
-	return TryGetTimeRange(
-			RangeTag,
-			TimeRange)
-		&& TimeRange.Contains(
-			TimeOfDay);
-}
-
-bool UDiurnalCycleSubsystem::IsCurrentTimeInRange(
-	const FGameplayTag RangeTag) const
-{
-	return IsTimeOfDayInRange(
-		RangeTag,
-		GetTimeOfDay());
-}
-
-TArray<FGameplayTag>
-UDiurnalCycleSubsystem::GetActiveTimeRanges() const
-{
-	const TArray<FDiurnalTimeRange>
-		ActiveRangeDefinitions =
-			GetActiveTimeRangeDefinitions(
-				GetTimeOfDay());
-
-	TArray<FGameplayTag> ActiveRangeTags;
-
-	ActiveRangeTags.Reserve(
-		ActiveRangeDefinitions.Num());
-
-	for (const FDiurnalTimeRange& Range :
-		 ActiveRangeDefinitions)
+	for (const FDiurnalResolvedTimeRange& Match : FindTimeRangesByTag(RangeTag))
 	{
-		ActiveRangeTags.Add(
-			Range.RangeTag);
+		if (Match.Range.Contains(TimeOfDay))
+		{
+			return true;
+		}
 	}
+	return false;
+}
 
-	return ActiveRangeTags;
+bool UDiurnalCycleSubsystem::IsCurrentTimeInRange(const FGameplayTag RangeTag) const
+{
+	const FDiurnalDateTime DateTime = GetDateTime();
+	for (const FDiurnalResolvedTimeRange& Match : FindTimeRangesByTag(RangeTag))
+	{
+		if (Match.Range.ContainsOnDay(DateTime.Day, DateTime.GetTimeOfDay())) return true;
+	}
+	return false;
+}
+
+TArray<FGameplayTag> UDiurnalCycleSubsystem::GetActiveTimeRangeTags() const
+{
+	TArray<FGameplayTag> ActiveTags;
+	for (const FDiurnalResolvedTimeRange& Resolved : GetActiveTimeRangeDefinitions(GetDateTime()))
+	{
+		for (const FGameplayTag Tag : Resolved.Range.RangeTags.GetGameplayTagArray())
+		{
+			ActiveTags.AddUnique(Tag);
+		}
+	}
+	return ActiveTags;
+}
+
+TArray<FDiurnalScheduleEntryReference> UDiurnalCycleSubsystem::GetActiveTimeRangeEntries() const
+{
+	TArray<FDiurnalScheduleEntryReference> Result;
+	for (const FDiurnalResolvedTimeRange& Resolved : GetActiveTimeRangeDefinitions(GetDateTime()))
+	{
+		Result.Add(Resolved.GetEntryReference());
+	}
+	return Result;
 }
 
 #pragma endregion
 
 #pragma region TimeRangeProcessing
 
-TArray<FDiurnalTimeRange>
-UDiurnalCycleSubsystem::GetActiveTimeRangeDefinitions(
-	const FDiurnalTimeOfDay& TimeOfDay) const
+TArray<FDiurnalResolvedTimeRange> UDiurnalCycleSubsystem::GetActiveTimeRangeDefinitions(
+	const FDiurnalDateTime& DateTime) const
 {
-	checkf(
-		TimeOfDay.IsValid(),
-		TEXT(
-			"GetActiveTimeRangeDefinitions requires "
-			"a valid time of day."));
-
-	TArray<FDiurnalTimeRange> Result;
-
-	for (const FDiurnalTimeRange& Range :
-		 TimeRanges)
+	checkf(DateTime.IsValid(), TEXT("GetActiveTimeRangeDefinitions requires a valid date-time."));
+	TArray<FDiurnalResolvedTimeRange> Result;
+	for (const FDiurnalResolvedTimeRange& Resolved : ResolvedTimeRanges)
 	{
-		if (Range.Contains(
-				TimeOfDay))
+		if (Resolved.Range.ContainsOnDay(DateTime.Day, DateTime.GetTimeOfDay()))
 		{
-			Result.Add(
-				Range);
+			Result.Add(Resolved);
 		}
 	}
-
 	return Result;
 }
 
 void UDiurnalCycleSubsystem::BroadcastTimeRangeTransitions(
-	const TArray<FDiurnalTimeRange>& PreviousActiveRanges,
-	const TArray<FDiurnalTimeRange>& CurrentActiveRanges,
+	const TArray<FDiurnalResolvedTimeRange>& PreviousActiveRanges,
+	const TArray<FDiurnalResolvedTimeRange>& CurrentActiveRanges,
 	const FDiurnalDateTime& CurrentDateTime)
 {
-	const auto ContainsTag =
-		[](
-			const TArray<FDiurnalTimeRange>& Ranges,
-			const FGameplayTag RangeTag)
-		{
-			return Ranges.ContainsByPredicate(
-				[RangeTag](
-					const FDiurnalTimeRange& Range)
-				{
-					return Range.RangeTag
-						== RangeTag;
-				});
-		};
-
-	/*
-	 * Exits are emitted first. Both arrays are snapshots, so callbacks may
-	 * freely mutate the runtime range schedule without changing this batch.
-	 */
-	for (const FDiurnalTimeRange& PreviousRange :
-		 PreviousActiveRanges)
+	const auto ContainsReference = [](
+		const TArray<FDiurnalResolvedTimeRange>& Ranges,
+		const FDiurnalScheduleEntryReference& Reference)
 	{
-		if (ContainsTag(
-				CurrentActiveRanges,
-				PreviousRange.RangeTag))
-		{
-			continue;
-		}
+		return Ranges.ContainsByPredicate(
+			[&Reference](const FDiurnalResolvedTimeRange& Range)
+			{
+				return Range.GetEntryReference() == Reference;
+			});
+	};
 
-		TimeRangeExitedEvent.Broadcast(
-			PreviousRange,
-			CurrentDateTime);
+	for (const FDiurnalResolvedTimeRange& Previous : PreviousActiveRanges)
+	{
+		const FDiurnalScheduleEntryReference Reference = Previous.GetEntryReference();
+		if (!ContainsReference(CurrentActiveRanges, Reference))
+		{
+			TimeRangeEntryExitedEvent.Broadcast(Reference, Previous.Range, CurrentDateTime);
+			TimeRangeExitedEvent.Broadcast(Previous.Range, CurrentDateTime);
+		}
 	}
-
-	for (const FDiurnalTimeRange& CurrentRange :
-		 CurrentActiveRanges)
+	for (const FDiurnalResolvedTimeRange& Current : CurrentActiveRanges)
 	{
-		if (ContainsTag(
-				PreviousActiveRanges,
-				CurrentRange.RangeTag))
+		const FDiurnalScheduleEntryReference Reference = Current.GetEntryReference();
+		if (!ContainsReference(PreviousActiveRanges, Reference))
 		{
-			continue;
+			TimeRangeEntryEnteredEvent.Broadcast(Reference, Current.Range, CurrentDateTime);
+			TimeRangeEnteredEvent.Broadcast(Current.Range, CurrentDateTime);
 		}
-
-		TimeRangeEnteredEvent.Broadcast(
-			CurrentRange,
-			CurrentDateTime);
 	}
 }
 
