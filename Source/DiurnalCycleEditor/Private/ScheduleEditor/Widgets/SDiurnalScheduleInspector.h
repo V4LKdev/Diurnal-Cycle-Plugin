@@ -15,8 +15,11 @@ struct FPropertyChangedEvent;
 class DIURNALCYCLEEDITOR_API SDiurnalScheduleInspector final : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SDiurnalScheduleInspector) {}
+	SLATE_BEGIN_ARGS(SDiurnalScheduleInspector)
+		: _ShowCreationActions(true)
+	{}
 		SLATE_ARGUMENT(TSharedPtr<FDiurnalScheduleEditorModel>, Model)
+		SLATE_ARGUMENT(bool, ShowCreationActions)
 	SLATE_END_ARGS()
 	virtual ~SDiurnalScheduleInspector() override;
 	void Construct(const FArguments& Args);
@@ -28,7 +31,8 @@ private:
 	void AddRecurrenceRows(const TSharedPtr<IPropertyHandle>& Handle);
 	void AddPropertyHandleRow(const FText& Label, const TSharedPtr<IPropertyHandle>& Handle);
 	FReply OpenColorPicker();
-	FReply ResetColorToAutomatic();
+	FReply HandleColorBlockMouseDown(const FGeometry& Geometry, const FPointerEvent& PointerEvent);
+	void ResetColorToAutomatic();
 	FLinearColor GetSelectedEditorColor() const;
 	bool IsSelectedColorOverridden() const;
 	void SetSelectedEditorColor(FLinearColor NewColor);
@@ -47,4 +51,5 @@ private:
 	bool bColorPickerCancelled = false;
 	bool bPackageWasDirty = false;
 	bool bRefreshQueued = false;
+	bool bShowCreationActions = true;
 };

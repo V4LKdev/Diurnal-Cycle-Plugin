@@ -18,7 +18,7 @@ public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 
-	/** Opens or focuses the read-only merged Schedule Browser. */
+	/** Opens or focuses the authored Schedule Browser. */
 	static void OpenScheduleBrowser();
 	static void OpenProjectSettings();
 

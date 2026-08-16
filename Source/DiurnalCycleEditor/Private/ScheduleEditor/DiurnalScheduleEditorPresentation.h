@@ -14,8 +14,8 @@ namespace DiurnalScheduleEditor
 {
 	constexpr int32 DefaultVisibleTagChips = 2;
 
-	DIURNALCYCLEEDITOR_API FLinearColor GetAutomaticEventColor(const FGuid& EntryId);
-	DIURNALCYCLEEDITOR_API FLinearColor GetAutomaticRangeColor(const FGuid& EntryId);
+	DIURNALCYCLEEDITOR_API FLinearColor GetAutomaticEventColor(const FDiurnalTimeEvent& Event);
+	DIURNALCYCLEEDITOR_API FLinearColor GetAutomaticRangeColor(const FDiurnalTimeRange& Range);
 	DIURNALCYCLEEDITOR_API FLinearColor GetEditorColor(const FDiurnalTimeEvent& Event);
 	DIURNALCYCLEEDITOR_API FLinearColor GetEditorColor(const FDiurnalTimeRange& Range);
 

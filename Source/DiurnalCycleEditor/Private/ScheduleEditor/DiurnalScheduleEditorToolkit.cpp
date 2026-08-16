@@ -39,6 +39,17 @@ void FDiurnalScheduleEditorToolkit::InitScheduleEditor(EToolkitMode::Type Mode, 
 	if (GEditor) GEditor->RegisterForUndo(this);
 }
 
+void FDiurnalScheduleEditorToolkit::FocusEntry(
+	const EDiurnalScheduleSelectionType Type,
+	const FGuid EntryId)
+{
+	FocusWindow(ScheduleAsset.Get());
+	if (Workspace)
+	{
+		Workspace->FocusEntry(Type, EntryId);
+	}
+}
+
 void FDiurnalScheduleEditorToolkit::BindCommands()
 {
 	const FDiurnalScheduleEditorCommands& Commands = FDiurnalScheduleEditorCommands::Get();

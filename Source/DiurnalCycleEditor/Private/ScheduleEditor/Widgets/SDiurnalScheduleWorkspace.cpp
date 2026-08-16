@@ -1,5 +1,7 @@
 #include "ScheduleEditor/Widgets/SDiurnalScheduleWorkspace.h"
 
+#include "DiurnalCycleEditorStyle.h"
+#include "DiurnalCycleSettings.h"
 #include "ScheduleEditor/DiurnalScheduleEditorModel.h"
 #include "ScheduleEditor/DiurnalTimelineRangeController.h"
 #include "ScheduleEditor/Widgets/SDiurnalScheduleOverview.h"
@@ -28,12 +30,33 @@ namespace
 	const TCHAR* ViewSettingsSection = TEXT("DiurnalScheduleEditor");
 	const TCHAR* ViewSettingsKey = TEXT("LastView");
 	const TCHAR* SortSettingsKey = TEXT("LastListSort");
+
+	TSharedRef<SWidget> ViewToggleContent(const FName Brush, const FText& Label)
+	{
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+			[
+				SNew(SImage)
+				.Image(FDiurnalCycleEditorStyle::Get().GetBrush(Brush))
+			]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[
+				SNew(STextBlock).Text(Label)
+			];
+	}
+}
+
+SDiurnalScheduleWorkspace::~SDiurnalScheduleWorkspace()
+{
+	FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(SettingsChangedHandle);
 }
 
 void SDiurnalScheduleWorkspace::Construct(const FArguments& Args)
 {
 	Model = Args._Model;
 	check(Model.IsValid());
+	SettingsChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddSP(
+		this, &SDiurnalScheduleWorkspace::HandleSettingsChanged);
 	FString SavedView;
 	if (GConfig && GConfig->GetString(ViewSettingsSection, ViewSettingsKey, SavedView, GEditorPerProjectIni))
 	{
@@ -138,14 +161,14 @@ void SDiurnalScheduleWorkspace::Construct(const FArguments& Args)
 					SNew(SCheckBox).Style(FAppStyle::Get(), "ToggleButtonCheckbox")
 					.IsChecked(this, &SDiurnalScheduleWorkspace::IsViewChecked, EDiurnalScheduleEditorViewMode::List)
 					.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { if (State == ECheckBoxState::Checked) SetViewMode(EDiurnalScheduleEditorViewMode::List); })
-					[SNew(STextBlock).Text(LOCTEXT("ListMode", "List"))]
+					[ViewToggleContent(TEXT("DiurnalCycle.View.List"), LOCTEXT("ListMode", "List"))]
 				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 12, 0)
 				[
 					SNew(SCheckBox).Style(FAppStyle::Get(), "ToggleButtonCheckbox")
 					.IsChecked(this, &SDiurnalScheduleWorkspace::IsViewChecked, EDiurnalScheduleEditorViewMode::Timeline)
 					.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { if (State == ECheckBoxState::Checked) SetViewMode(EDiurnalScheduleEditorViewMode::Timeline); })
-					[SNew(STextBlock).Text(LOCTEXT("TimelineMode", "Timeline"))]
+					[ViewToggleContent(TEXT("DiurnalCycle.View.Timeline"), LOCTEXT("TimelineMode", "Timeline"))]
 				]
 				+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
 				[
@@ -237,10 +260,28 @@ void SDiurnalScheduleWorkspace::Construct(const FArguments& Args)
 	NormalizeSelectionForView();
 }
 
+void SDiurnalScheduleWorkspace::HandleSettingsChanged(
+	UObject* Object,
+	FPropertyChangedEvent&)
+{
+	if (Object == GetMutableDefault<UDiurnalCycleSettings>())
+	{
+		Model->NotifyInteractiveValueChanged();
+	}
+}
+
 void SDiurnalScheduleWorkspace::RequestRenameSelected()
 {
 	if (ViewMode != EDiurnalScheduleEditorViewMode::List) SetViewMode(EDiurnalScheduleEditorViewMode::List);
 	if (ListView) ListView->RequestRenameSelected();
+}
+
+void SDiurnalScheduleWorkspace::FocusEntry(
+	const EDiurnalScheduleSelectionType Type,
+	const FGuid EntryId)
+{
+	SetViewMode(EDiurnalScheduleEditorViewMode::List);
+	Model->SelectEntry(Type, EntryId);
 }
 
 FReply SDiurnalScheduleWorkspace::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)

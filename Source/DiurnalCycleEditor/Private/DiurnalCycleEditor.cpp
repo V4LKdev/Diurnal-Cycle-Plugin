@@ -46,7 +46,7 @@ void FDiurnalCycleEditorModule::StartupModule()
 			NSLOCTEXT(
 				"DiurnalCycleEditor",
 				"CalendarTabTooltip",
-				"Browse the merged authored default schedule layers and open their owning assets."))
+				"Browse and edit project-default entries or any authored schedule asset."))
 		.SetIcon(
 			FSlateIcon(
 				FDiurnalCycleEditorStyle::GetStyleSetName(),

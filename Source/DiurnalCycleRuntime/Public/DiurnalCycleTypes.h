@@ -426,7 +426,7 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeRange
 	FName RangeName;
 
 #if WITH_EDITORONLY_DATA
-	/** Uses a custom authored color instead of the deterministic editor palette. */
+	/** Uses a custom authored color instead of the configured default. */
 	UPROPERTY(EditAnywhere, Category = "Presentation", meta = (DisplayName = "Override Color"))
 	bool bOverrideEditorColor = false;
 
@@ -897,7 +897,7 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeEvent
 	FName EventName;
 
 #if WITH_EDITORONLY_DATA
-	/** Uses a custom authored color instead of the deterministic editor palette. */
+	/** Uses a custom authored color instead of the configured default. */
 	UPROPERTY(EditAnywhere, Category = "Presentation", meta = (DisplayName = "Override Color"))
 	bool bOverrideEditorColor = false;
 

@@ -74,7 +74,7 @@ namespace
 		return Row;
 	}
 
-	TSharedRef<SWidget> Icon(const FName Brush, const FText& Tooltip, const EVisibility Visibility = EVisibility::Visible)
+	TSharedRef<SWidget> DiurnalIcon(const FName Brush, const FText& Tooltip, const EVisibility Visibility = EVisibility::Visible)
 	{
 		return SNew(SBox)
 		.WidthOverride(16)
@@ -82,7 +82,7 @@ namespace
 		.ToolTipText(Tooltip)
 		.Visibility(Visibility)
 		[
-			SNew(SImage).Image(FAppStyle::GetBrush(Brush)).ColorAndOpacity(FSlateColor::UseSubduedForeground())
+			SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush(Brush)).ColorAndOpacity(FSlateColor::UseSubduedForeground())
 		];
 	}
 }
@@ -269,7 +269,7 @@ TSharedRef<ITableRow> SDiurnalScheduleOverview::GenerateRow(
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 3, 0)
 							[SNew(SBox).WidthOverride(16).HeightOverride(16).ToolTipText(Item->Type == EDiurnalScheduleSelectionType::Event ? (Item->bOneOff ? LOCTEXT("OnceIcon", "One-off Event") : LOCTEXT("RepeatIcon", "Repeating Event")) : LOCTEXT("RangeIcon", "Time Range"))[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush(Item->Type == EDiurnalScheduleSelectionType::Range ? "DiurnalCycle.Entry.Range" : Item->bOneOff ? "DiurnalCycle.Entry.Once" : "DiurnalCycle.Entry.Repeating")).ColorAndOpacity(FSlateColor::UseSubduedForeground())]]
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 3, 0)
-						[Icon(Item->bBlocking ? FName("Icons.Pinned") : FName("Icons.Event"), Item->bBlocking ? LOCTEXT("BlockIcon", "Blocking behavior") : LOCTEXT("NotifyIcon", "Notify behavior"), Item->Type == EDiurnalScheduleSelectionType::Event ? EVisibility::Visible : EVisibility::Collapsed)]
+						[DiurnalIcon(Item->bBlocking ? FName("DiurnalCycle.Entry.Blocking") : FName("DiurnalCycle.Entry.Notify"), Item->bBlocking ? LOCTEXT("BlockIcon", "Blocking behavior") : LOCTEXT("NotifyIcon", "Notify behavior"), Item->Type == EDiurnalScheduleSelectionType::Event ? EVisibility::Visible : EVisibility::Collapsed)]
 					]
 					+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
 					[

@@ -115,6 +115,32 @@ public:
 		meta = (AllowedClasses = "/Script/DiurnalCycleRuntime.DiurnalSchedule"))
 	TArray<TSoftObjectPtr<UDiurnalSchedule>> DefaultSchedules;
 
+#if WITH_EDITORONLY_DATA
+	/** Default planning color for a Once notification event. */
+	UPROPERTY(Config, EditAnywhere, Category = "Schedule|Default Colors", meta = (DisplayName = "Once Event", HideAlphaChannel))
+	FLinearColor OnceEventColor = FLinearColor(0.30f, 0.45f, 0.74f, 1.0f);
+
+	/** Default planning color for a Repeating notification event. */
+	UPROPERTY(Config, EditAnywhere, Category = "Schedule|Default Colors", meta = (DisplayName = "Repeating Event", HideAlphaChannel))
+	FLinearColor RepeatingEventColor = FLinearColor(0.43f, 0.34f, 0.66f, 1.0f);
+
+	/** Default planning color for a Once blocking event. */
+	UPROPERTY(Config, EditAnywhere, Category = "Schedule|Default Colors", meta = (DisplayName = "Once Gate", HideAlphaChannel))
+	FLinearColor OnceGateColor = FLinearColor(0.76f, 0.38f, 0.15f, 1.0f);
+
+	/** Default planning color for a Repeating blocking event. */
+	UPROPERTY(Config, EditAnywhere, Category = "Schedule|Default Colors", meta = (DisplayName = "Repeating Gate", HideAlphaChannel))
+	FLinearColor RepeatingGateColor = FLinearColor(0.68f, 0.25f, 0.25f, 1.0f);
+
+	/** Default planning color for a Once time range. */
+	UPROPERTY(Config, EditAnywhere, Category = "Schedule|Default Colors", meta = (DisplayName = "Once Range", HideAlphaChannel))
+	FLinearColor OnceRangeColor = FLinearColor(0.20f, 0.49f, 0.53f, 1.0f);
+
+	/** Default planning color for a Repeating time range. */
+	UPROPERTY(Config, EditAnywhere, Category = "Schedule|Default Colors", meta = (DisplayName = "Repeating Range", HideAlphaChannel))
+	FLinearColor RepeatingRangeColor = FLinearColor(0.31f, 0.57f, 0.39f, 1.0f);
+#endif
+
 #pragma endregion
 
 #pragma region UDeveloperSettings

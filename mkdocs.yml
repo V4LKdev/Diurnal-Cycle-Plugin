@@ -1,0 +1,29 @@
+site_name: Day/Night Cycle
+site_description: A short guide to the Day/Night Cycle Unreal Engine plugin.
+repo_url: https://github.com/V4LKdev/Diurnal-Cycle-Plugin
+repo_name: V4LKdev/Diurnal-Cycle-Plugin
+
+theme:
+  name: material
+  language: en
+  palette:
+    scheme: slate
+    primary: black
+    accent: blue
+  features:
+    - navigation.top
+    - content.code.copy
+
+nav:
+  - Start here: index.md
+  - Editor:
+      - Schedule Editor: editor/schedule-editor.md
+      - Schedule Browser: editor/schedule-browser.md
+  - Blueprint guide: blueprints.md
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - tables

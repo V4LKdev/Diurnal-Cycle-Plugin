@@ -26,6 +26,7 @@ public:
 	virtual FString GetWorldCentricTabPrefix() const override;
 	virtual void PostUndo(bool bSuccess) override;
 	virtual void PostRedo(bool bSuccess) override;
+	void FocusEntry(EDiurnalScheduleSelectionType Type, FGuid EntryId);
 private:
 	void BindCommands();
 	void ExtendToolbar();

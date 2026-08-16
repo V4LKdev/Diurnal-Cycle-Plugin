@@ -10,6 +10,7 @@ class SDiurnalScheduleOverview;
 class SDiurnalScheduleWeekView;
 class SSearchBox;
 class SWidgetSwitcher;
+struct FPropertyChangedEvent;
 
 enum class EDiurnalScheduleEditorViewMode : uint8
 {
@@ -26,10 +27,12 @@ public:
 		SLATE_ARGUMENT(TSharedPtr<FUICommandList>, Commands)
 	SLATE_END_ARGS()
 
+	virtual ~SDiurnalScheduleWorkspace() override;
 	void Construct(const FArguments& Args);
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 	void RequestRenameSelected();
+	void FocusEntry(EDiurnalScheduleSelectionType Type, FGuid EntryId);
 	void SetViewMode(EDiurnalScheduleEditorViewMode InViewMode);
 	void ClearSelectionForCurrentView();
 	EDiurnalScheduleEditorViewMode GetViewMode() const { return ViewMode; }
@@ -64,6 +67,7 @@ private:
 	FText GetTimelineRangeText() const;
 	FText GetRuntimeMarkerText() const;
 	void NormalizeSelectionForView();
+	void HandleSettingsChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
 
 	TSharedPtr<FDiurnalScheduleEditorModel> Model;
 	TSharedPtr<SDiurnalScheduleOverview> ListView;
@@ -71,4 +75,5 @@ private:
 	TSharedPtr<SSearchBox> SearchBox;
 	TSharedPtr<SWidgetSwitcher> ViewSwitcher;
 	EDiurnalScheduleEditorViewMode ViewMode = EDiurnalScheduleEditorViewMode::Timeline;
+	FDelegateHandle SettingsChangedHandle;
 };

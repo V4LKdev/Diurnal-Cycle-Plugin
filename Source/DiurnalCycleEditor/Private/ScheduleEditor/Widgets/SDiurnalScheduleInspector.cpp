@@ -1,15 +1,18 @@
 #include "ScheduleEditor/Widgets/SDiurnalScheduleInspector.h"
 
+#include "DiurnalCycleSettings.h"
 #include "DiurnalSchedule.h"
 #include "ScheduleEditor/DiurnalScheduleEditorPresentation.h"
 #include "IDetailTreeNode.h"
 #include "IPropertyRowGenerator.h"
 #include "PropertyEditorModule.h"
 #include "PropertyHandle.h"
+#include "SResetToDefaultPropertyEditor.h"
 #include "ScheduleEditor/DiurnalScheduleEditorModel.h"
 #include "ScopedTransaction.h"
 #include "Async/Async.h"
 #include "Framework/Application/SlateApplication.h"
+#include "InputCoreTypes.h"
 #include "Misc/DataValidation.h"
 #include "Styling/AppStyle.h"
 #include "Styling/StyleColors.h"
@@ -42,6 +45,7 @@ namespace
 void SDiurnalScheduleInspector::Construct(const FArguments& Args)
 {
 	Model = Args._Model; check(Model);
+	bShowCreationActions = Args._ShowCreationActions;
 	FPropertyRowGeneratorArgs GeneratorArgs;
 	RowGenerator = FModuleManager::LoadModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor")).CreatePropertyRowGenerator(GeneratorArgs);
 	Model->OnChanged().AddSP(this, &SDiurnalScheduleInspector::Refresh);
@@ -81,12 +85,15 @@ void SDiurnalScheduleInspector::Refresh()
 			[
 				SNew(STextBlock).Text(FText::Format(LOCTEXT("DaySummary", "{0} event occurrences\n{1} active range entries"), FText::AsNumber(EventCount), FText::AsNumber(RangeCount))).ColorAndOpacity(FSlateColor::UseSubduedForeground())
 			];
-			Rows->AddSlot().AutoHeight()
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)[SNew(SButton).Text(LOCTEXT("AddDayEvent", "Add Event")).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddOnceEventAt(SelectedDay, FDiurnalTimeOfDay(12)); return FReply::Handled(); })]
-				+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("AddDayRange", "Add Time Range")).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddRangeAt(FDiurnalTimeOfDay(12), 60, SelectedDay); return FReply::Handled(); })]
-			];
+			if (bShowCreationActions)
+			{
+				Rows->AddSlot().AutoHeight()
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)[SNew(SButton).Text(LOCTEXT("AddDayEvent", "Add Event")).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddOnceEventAt(SelectedDay, FDiurnalTimeOfDay(12)); return FReply::Handled(); })]
+					+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("AddDayRange", "Add Time Range")).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddRangeAt(FDiurnalTimeOfDay(12), 60, SelectedDay); return FReply::Handled(); })]
+				];
+			}
 			return;
 		}
 		FDataValidationContext ValidationContext;
@@ -104,12 +111,15 @@ void SDiurnalScheduleInspector::Refresh()
 			SNew(STextBlock).Text(bValid ? LOCTEXT("Valid", "Valid") : LOCTEXT("Invalid", "Needs attention"))
 			.ColorAndOpacity(bValid ? FSlateColor(FStyleColors::AccentGreen) : FSlateColor(FStyleColors::Warning))
 		];
-		Rows->AddSlot().AutoHeight()
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)[SNew(SButton).Text(LOCTEXT("AddEvent", "Add Event")).OnClicked_Lambda([Model = Model] { Model->AddRepeatingEvent(); return FReply::Handled(); })]
-			+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("AddRange", "Add Time Range")).OnClicked_Lambda([Model = Model] { Model->AddRange(); return FReply::Handled(); })]
-		];
+		if (bShowCreationActions)
+		{
+			Rows->AddSlot().AutoHeight()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)[SNew(SButton).Text(LOCTEXT("AddEvent", "Add Event")).OnClicked_Lambda([Model = Model] { Model->AddRepeatingEvent(); return FReply::Handled(); })]
+				+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("AddRange", "Add Time Range")).OnClicked_Lambda([Model = Model] { Model->AddRange(); return FReply::Handled(); })]
+			];
+		}
 		return;
 	}
 
@@ -188,22 +198,36 @@ void SDiurnalScheduleInspector::AddColorRow()
 		+ SHorizontalBox::Slot().FillWidth(.58f).VAlign(VAlign_Center)
 		[
 			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 5, 0)
+			+ SHorizontalBox::Slot().FillWidth(1)
 			[
-				SNew(SButton).ContentPadding(FMargin(2)).OnClicked(this, &SDiurnalScheduleInspector::OpenColorPicker)
-				[
-					SNew(SColorBlock).Color(this, &SDiurnalScheduleInspector::GetSelectedEditorColor).Size(FVector2D(48, 16)).ShowBackgroundForAlpha(true)
-				]
+				SNew(SColorBlock)
+				.Color(this, &SDiurnalScheduleInspector::GetSelectedEditorColor)
+				.ShowBackgroundForAlpha(true)
+				.AlphaDisplayMode(EColorBlockAlphaDisplayMode::Ignore)
+				.Size(FVector2D(120, 20))
+				.CornerRadius(FVector4(4, 4, 4, 4))
+				.OnMouseButtonDown(this, &SDiurnalScheduleInspector::HandleColorBlockMouseDown)
 			]
-			+ SHorizontalBox::Slot().AutoWidth()
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
 			[
-				SNew(SButton).ButtonStyle(FAppStyle::Get(), "SimpleButton").Text(LOCTEXT("Automatic", "Automatic ↺"))
-				.ToolTipText(LOCTEXT("AutomaticTip", "Use the deterministic automatic palette color."))
-				.IsEnabled_Lambda([this] { return IsSelectedColorOverridden(); })
-				.OnClicked(this, &SDiurnalScheduleInspector::ResetColorToAutomatic)
+				SNew(SResetToDefaultPropertyEditor, TSharedPtr<IPropertyHandle>())
+				.CustomResetToDefault(FResetToDefaultOverride::Create(
+					TAttribute<bool>::CreateSP(this, &SDiurnalScheduleInspector::IsSelectedColorOverridden),
+					FSimpleDelegate::CreateSP(this, &SDiurnalScheduleInspector::ResetColorToAutomatic)))
 			]
 		]
 	];
+}
+
+FReply SDiurnalScheduleInspector::HandleColorBlockMouseDown(
+	const FGeometry&,
+	const FPointerEvent& PointerEvent)
+{
+	if (PointerEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	{
+		return FReply::Unhandled();
+	}
+	return OpenColorPicker();
 }
 
 void SDiurnalScheduleInspector::AddTimePropertyNode(const TSharedRef<IDetailTreeNode>& Node)
@@ -430,11 +454,11 @@ void SDiurnalScheduleInspector::HandleColorPickerClosed(const TSharedRef<SWindow
 	Refresh();
 }
 
-FReply SDiurnalScheduleInspector::ResetColorToAutomatic()
+void SDiurnalScheduleInspector::ResetColorToAutomatic()
 {
 #if WITH_EDITORONLY_DATA
 	UDiurnalSchedule* Asset = Model->GetSchedule();
-	if (!Asset || !IsSelectedColorOverridden()) return FReply::Handled();
+	if (!Asset || !IsSelectedColorOverridden()) return;
 	const FScopedTransaction Transaction(LOCTEXT("ResetEntryColor", "Reset Schedule Entry Color"));
 	Asset->Modify();
 	if (Model->GetSelectionType() == EDiurnalScheduleSelectionType::Event)
@@ -449,11 +473,15 @@ FReply SDiurnalScheduleInspector::ResetColorToAutomatic()
 	Asset->PostEditChange();
 	Model->NotifyInteractiveValueChanged();
 #endif
-	return FReply::Handled();
 }
 
 void SDiurnalScheduleInspector::HandleObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
 {
+	if (Object == GetMutableDefault<UDiurnalCycleSettings>())
+	{
+		Refresh();
+		return;
+	}
 	if (Object != Model->GetSchedule() || bRefreshQueued) return;
 	if ((Event.ChangeType & EPropertyChangeType::Interactive) != 0)
 	{

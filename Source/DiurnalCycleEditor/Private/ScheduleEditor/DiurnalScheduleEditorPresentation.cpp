@@ -1,50 +1,32 @@
 #include "ScheduleEditor/DiurnalScheduleEditorPresentation.h"
+#include "DiurnalCycleSettings.h"
 
 namespace
 {
-	const TArray<FLinearColor>& EventPalette()
+	FLinearColor Opaque(FLinearColor Color)
 	{
-		static const TArray<FLinearColor> Palette =
-		{
-			FLinearColor(0.30f, 0.45f, 0.74f),
-			FLinearColor(0.39f, 0.39f, 0.70f),
-			FLinearColor(0.43f, 0.34f, 0.66f),
-			FLinearColor(0.28f, 0.53f, 0.69f),
-			FLinearColor(0.48f, 0.39f, 0.63f)
-		};
-		return Palette;
-	}
-
-	const TArray<FLinearColor>& RangePalette()
-	{
-		static const TArray<FLinearColor> Palette =
-		{
-			FLinearColor(0.22f, 0.55f, 0.48f),
-			FLinearColor(0.27f, 0.50f, 0.42f),
-			FLinearColor(0.20f, 0.49f, 0.53f),
-			FLinearColor(0.31f, 0.57f, 0.39f),
-			FLinearColor(0.24f, 0.46f, 0.45f)
-		};
-		return Palette;
-	}
-
-	FLinearColor PaletteColor(const FGuid& EntryId, const TArray<FLinearColor>& Palette)
-	{
-		const uint32 Hash = HashCombine(HashCombine(EntryId.A, EntryId.B), HashCombine(EntryId.C, EntryId.D));
-		FLinearColor Result = Palette[Hash % Palette.Num()];
-		Result.A = 1.0f;
-		return Result;
+		Color.A = 1.0f;
+		return Color;
 	}
 }
 
-FLinearColor DiurnalScheduleEditor::GetAutomaticEventColor(const FGuid& EntryId)
+FLinearColor DiurnalScheduleEditor::GetAutomaticEventColor(const FDiurnalTimeEvent& Event)
 {
-	return PaletteColor(EntryId, EventPalette());
+	const UDiurnalCycleSettings* Settings = GetDefault<UDiurnalCycleSettings>();
+	const bool bOnce = Event.Recurrence.Mode == EDiurnalRecurrenceMode::Once;
+	if (Event.IsBlocking())
+	{
+		return Opaque(bOnce ? Settings->OnceGateColor : Settings->RepeatingGateColor);
+	}
+	return Opaque(bOnce ? Settings->OnceEventColor : Settings->RepeatingEventColor);
 }
 
-FLinearColor DiurnalScheduleEditor::GetAutomaticRangeColor(const FGuid& EntryId)
+FLinearColor DiurnalScheduleEditor::GetAutomaticRangeColor(const FDiurnalTimeRange& Range)
 {
-	return PaletteColor(EntryId, RangePalette());
+	const UDiurnalCycleSettings* Settings = GetDefault<UDiurnalCycleSettings>();
+	return Opaque(Range.Recurrence.Mode == EDiurnalRecurrenceMode::Once
+		? Settings->OnceRangeColor
+		: Settings->RepeatingRangeColor);
 }
 
 FLinearColor DiurnalScheduleEditor::GetEditorColor(const FDiurnalTimeEvent& Event)
@@ -55,7 +37,7 @@ FLinearColor DiurnalScheduleEditor::GetEditorColor(const FDiurnalTimeEvent& Even
 		return Event.EditorColor;
 	}
 #endif
-	return GetAutomaticEventColor(Event.EntryId);
+	return GetAutomaticEventColor(Event);
 }
 
 FLinearColor DiurnalScheduleEditor::GetEditorColor(const FDiurnalTimeRange& Range)
@@ -66,7 +48,7 @@ FLinearColor DiurnalScheduleEditor::GetEditorColor(const FDiurnalTimeRange& Rang
 		return Range.EditorColor;
 	}
 #endif
-	return GetAutomaticRangeColor(Range.EntryId);
+	return GetAutomaticRangeColor(Range);
 }
 
 FDiurnalTagChipProjection DiurnalScheduleEditor::ProjectTagChips(

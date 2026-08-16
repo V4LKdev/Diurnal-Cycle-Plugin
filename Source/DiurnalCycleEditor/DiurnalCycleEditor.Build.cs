@@ -24,6 +24,7 @@ public class DiurnalCycleEditor : ModuleRules
 				"SlateCore",
 				"AppFramework",
 				"SequencerWidgets",
+				"ToolWidgets",
 
 				"ToolMenus",
 				"LevelEditor",
@@ -31,6 +32,7 @@ public class DiurnalCycleEditor : ModuleRules
 				"AssetDefinition",
 				"AssetTools",
 				"AssetRegistry",
+				"ContentBrowser",
 				"Projects",
 				"Settings",
 				"PropertyEditor",
