@@ -37,6 +37,8 @@ when Blueprint code needs to target one exact entry or gate.
 
 [Read the documentation](https://v4lkdev.github.io/Diurnal-Cycle-Plugin/).
 
+Future work is tracked on the documentation [Roadmap](https://v4lkdev.github.io/Diurnal-Cycle-Plugin/roadmap/).
+
 ## License
 
 [MIT](LICENSE) © 2026 Nicolas Martin. Third-party notices are listed in

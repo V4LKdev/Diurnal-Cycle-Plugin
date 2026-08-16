@@ -1,6 +1,7 @@
 #include "ScheduleEditor/Widgets/SDiurnalScheduleWeekView.h"
 
 #include "DiurnalCycleSettings.h"
+#include "DiurnalCycleEditorStyle.h"
 #include "DiurnalSchedule.h"
 #include "ScheduleEditor/DiurnalScheduleEditorModel.h"
 #include "ScheduleEditor/DiurnalTimelineRangeController.h"
@@ -153,8 +154,8 @@ namespace
 			FDiurnalWeekHit Hit;
 			if (!Geometry.Get().PositionToDayAndTime(MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition()), Hit)) return FReply::Unhandled();
 			FMenuBuilder Menu(true, nullptr);
-			Menu.AddMenuEntry(LOCTEXT("AddEventHere", "Add Event Here"), FText::Format(LOCTEXT("AddEventHereTip", "Create a one-off Event on Day {0} at {1}."), Hit.Day, FText::FromString(Hit.TimeOfDay.ToString())), FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Event"), FUIAction(FExecuteAction::CreateLambda([Action = OnAddEvent, Hit] { Action.ExecuteIfBound(Hit.Day, Hit.TimeOfDay); })));
-			Menu.AddMenuEntry(LOCTEXT("AddRangeHere", "Add Time Range Here"), LOCTEXT("AddRangeHereTip", "Create a one-hour one-off Time Range beginning at this day and time."), FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Details"), FUIAction(FExecuteAction::CreateLambda([Action = OnAddRange, Hit] { Action.ExecuteIfBound(Hit.Day, Hit.TimeOfDay); })));
+			Menu.AddMenuEntry(LOCTEXT("AddEventHere", "Add Event Here"), FText::Format(LOCTEXT("AddEventHereTip", "Create a one-off Event on Day {0} at {1}."), Hit.Day, FText::FromString(Hit.TimeOfDay.ToString())), FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FDiurnalCycleEditorStyle::GetOccurrenceIconName(true)), FUIAction(FExecuteAction::CreateLambda([Action = OnAddEvent, Hit] { Action.ExecuteIfBound(Hit.Day, Hit.TimeOfDay); })));
+			Menu.AddMenuEntry(LOCTEXT("AddRangeHere", "Add Time Range Here"), LOCTEXT("AddRangeHereTip", "Create a one-hour one-off Time Range beginning at this day and time."), FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FName("DiurnalCycle.Entry.Range")), FUIAction(FExecuteAction::CreateLambda([Action = OnAddRange, Hit] { Action.ExecuteIfBound(Hit.Day, Hit.TimeOfDay); })));
 			FSlateApplication::Get().PushMenu(AsShared(), FWidgetPath(), Menu.MakeWidget(), MouseEvent.GetScreenSpacePosition(), FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
 			return FReply::Handled();
 		}
@@ -510,7 +511,7 @@ void SDiurnalScheduleWeekView::ResetView()
 
 FText SDiurnalScheduleWeekView::GetVisibleRangeText() const
 {
-	return FText::Format(LOCTEXT("DaysRange", "Days {0}–{1}"), FirstVisibleDay, FirstVisibleDay + VisibleDayCount - 1);
+	return FText::Format(LOCTEXT("DaysRange", "Days {0} to {1}"), FirstVisibleDay, FirstVisibleDay + VisibleDayCount - 1);
 }
 
 TSharedRef<ITimeSliderController> SDiurnalScheduleWeekView::GetTimelineRangeController() const
@@ -522,7 +523,7 @@ FText SDiurnalScheduleWeekView::GetRuntimeMarkerText() const
 {
 	const TOptional<FDiurnalScheduleRuntimeCursor> Cursor = GetDisplayCursor();
 	if (!Cursor.IsSet()) return FText::GetEmpty();
-	return FText::Format(Cursor->bIsLiveRuntime ? LOCTEXT("LiveMarker", "Live: Day {0} · {1}") : LOCTEXT("StartMarker", "Configured start: Day {0} · {1}"), Cursor->Day, FText::FromString(Cursor->TimeOfDay.ToString()));
+	return FText::Format(Cursor->bIsLiveRuntime ? LOCTEXT("LiveMarker", "Live: Day {0}, {1}") : LOCTEXT("StartMarker", "Configured start: Day {0}, {1}"), Cursor->Day, FText::FromString(Cursor->TimeOfDay.ToString()));
 }
 
 int32 SDiurnalScheduleWeekView::ResolveCurrentDay(const bool bIsPIE, const TOptional<FDiurnalScheduleRuntimeCursor>& Cursor, const int32 ConfiguredStartDay)
@@ -795,9 +796,11 @@ void SDiurnalScheduleWeekView::RebuildCanvas()
 			FString Prefix;
 			if (Range.bContinuesFromPreviousDay) Prefix += TEXT("↑ ");
 			if (Range.bContinuesIntoNextDay) Prefix += TEXT("↓ ");
-			const FText Tooltip = FText::FromString(FString::Printf(TEXT("%s\nDay %d · %02d:%02d–%02d:%02d\n%s\nSource: %s"), *Range.DisplayName.ToString(), Day.Day, Range.StartSecond / 3600, (Range.StartSecond / 60) % 60, Range.EndSecond / 3600, (Range.EndSecond / 60) % 60, *TagsTooltip(Range.Tags), *Range.SourceDisplayName));
+			const FText Tooltip = FText::FromString(FString::Printf(TEXT("%s\nDay %d, %02d:%02d to %02d:%02d\n%s\n%s\nSource: %s"), *Range.DisplayName.ToString(), Day.Day, Range.StartSecond / 3600, (Range.StartSecond / 60) % 60, Range.EndSecond / 3600, (Range.EndSecond / 60) % 60, Range.bIsRepeatingOccurrence ? TEXT("Repeating") : TEXT("Once"), *TagsTooltip(Range.Tags), *Range.SourceDisplayName));
 			const FText RangePrimary = LaneWidth < 54.0f ? FText::FromString(Prefix.IsEmpty() ? TEXT("■") : Prefix) : FText::FromString(Prefix + Range.DisplayName.ToString());
-			const FText RangeSecondary = LaneWidth >= 86.0f ? LOCTEXT("RangeBlock", "Time Range") : FText::GetEmpty();
+			const FText RangeSecondary = LaneWidth >= 86.0f
+				? (Range.bIsRepeatingOccurrence ? LOCTEXT("RepeatingRangeBlock", "Repeating Range") : LOCTEXT("OnceRangeBlock", "One-off Range"))
+				: FText::GetEmpty();
 			ItemCanvas->AddSlot().Offset(FMargin(X, Y, LaneWidth - 6, Height)).Anchors(FAnchors(0)).Alignment(FVector2D::ZeroVector).ZOrder(1)
 			[
 				SNew(SDiurnalWeekEntryBlock).Type(EDiurnalScheduleSelectionType::Range).EntryId(Range.EntryReference.EntryId).Day(Day.Day).Color(Range.EditorColor).bSelected(bSelected)
@@ -811,9 +814,9 @@ void SDiurnalScheduleWeekView::RebuildCanvas()
 			const float X = DayX + Event.CollisionLane * LaneWidth + 3;
 			const float Y = Event.TimeOfDay.ToHours() * ViewGeometry.PixelsPerHour - 18;
 			const bool bSelected = Model->GetSelectionType() == EDiurnalScheduleSelectionType::Event && Model->GetSelectedId() == Event.EntryReference.EntryId;
-			const FText Secondary = LaneWidth >= 92.0f ? FText::Format(LOCTEXT("EventBlockMeta", "{0} · {1}"), FText::FromString(Event.TimeOfDay.ToString().Left(5)), Event.Behavior == EDiurnalTimeEventBehavior::BlockTime ? LOCTEXT("Blocking", "Blocking") : LOCTEXT("Notify", "Notify")) : LaneWidth >= 62.0f ? FText::FromString(Event.TimeOfDay.ToString().Left(5)) : FText::GetEmpty();
+			const FText Secondary = LaneWidth >= 92.0f ? FText::Format(LOCTEXT("EventBlockMeta", "{0}, {1}"), FText::FromString(Event.TimeOfDay.ToString().Left(5)), Event.Behavior == EDiurnalTimeEventBehavior::BlockTime ? LOCTEXT("Blocking", "Blocking") : LOCTEXT("Notify", "Notify")) : LaneWidth >= 62.0f ? FText::FromString(Event.TimeOfDay.ToString().Left(5)) : FText::GetEmpty();
 			const FText Primary = LaneWidth < 48.0f ? FText::FromString(TEXT("●")) : FText::FromName(Event.DisplayName);
-			const FText Tooltip = FText::FromString(FString::Printf(TEXT("%s\nDay %d · %s\n%s · %s\n%s\nSource: %s"), *Event.DisplayName.ToString(), Day.Day, *Event.TimeOfDay.ToString(), Event.bIsRepeatingOccurrence ? TEXT("Repeating") : TEXT("Once"), Event.Behavior == EDiurnalTimeEventBehavior::BlockTime ? TEXT("Blocking") : TEXT("Notify"), *TagsTooltip(Event.Tags), *Event.SourceDisplayName));
+			const FText Tooltip = FText::FromString(FString::Printf(TEXT("%s\nDay %d, %s\n%s, %s\n%s\nSource: %s"), *Event.DisplayName.ToString(), Day.Day, *Event.TimeOfDay.ToString(), Event.bIsRepeatingOccurrence ? TEXT("Repeating") : TEXT("Once"), Event.Behavior == EDiurnalTimeEventBehavior::BlockTime ? TEXT("Blocking") : TEXT("Notify"), *TagsTooltip(Event.Tags), *Event.SourceDisplayName));
 			ItemCanvas->AddSlot().Offset(FMargin(X, FMath::Max(0.0f, Y), LaneWidth - 6, 38)).Anchors(FAnchors(0)).Alignment(FVector2D::ZeroVector).ZOrder(2)
 			[
 				SNew(SDiurnalWeekEntryBlock).Type(EDiurnalScheduleSelectionType::Event).EntryId(Event.EntryReference.EntryId).Day(Day.Day).Color(Event.EditorColor).bSelected(bSelected)

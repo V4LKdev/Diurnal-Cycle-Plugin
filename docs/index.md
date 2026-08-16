@@ -28,10 +28,10 @@ That is enough to run an authored schedule in PIE.
 
 ## Useful terms
 
-- **Event** — happens once at a specific time.
-- **Time Range** — stays active between a start and end time.
-- **Gate** — a blocking event that pauses time until the game releases it.
-- **Schedule** — a reusable asset containing events and ranges.
+- **Event:** happens once at a specific time.
+- **Time Range:** stays active between a start and end time.
+- **Gate:** a blocking event that pauses time until the game releases it.
+- **Schedule:** a reusable asset containing events and ranges.
 
 Gameplay Tags are optional labels for finding related entries. They are not
 unique IDs, so several entries can use the same tag.

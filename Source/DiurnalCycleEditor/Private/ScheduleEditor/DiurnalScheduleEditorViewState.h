@@ -27,7 +27,8 @@ struct FDiurnalScheduleEditorFilter
 	FString SearchText;
 	bool bShowRepeatingEvents = true;
 	bool bShowOnceEvents = true;
-	bool bShowTimeRanges = true;
+	bool bShowRepeatingRanges = true;
+	bool bShowOnceRanges = true;
 	bool bShowNotify = true;
 	bool bShowBlocking = true;
 
@@ -60,8 +61,9 @@ namespace DiurnalScheduleEditor
 	 * Builds a stable display projection without changing either authored array.
 	 * Manual preserves event-array order followed by range-array order. Name is
 	 * case-insensitive. Type groups events before ranges with chronological
-	 * secondary ordering. DayAndTime groups repeating events, one-off events, then
-	 * ranges. TimeOfDay compares only the occurrence/range start first. Every
+	 * secondary ordering. DayAndTime groups repeating entries before one-off
+	 * entries, then compares entry type, day, and time. TimeOfDay compares the
+	 * occurrence or range start first. Every
 	 * mode resolves ties by authored ordinal and EntryId.
 	 */
 	DIURNALCYCLEEDITOR_API TArray<FDiurnalScheduleListItem> BuildListItems(

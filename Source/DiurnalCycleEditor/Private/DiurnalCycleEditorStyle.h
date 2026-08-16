@@ -12,6 +12,7 @@ public:
 	static void Shutdown();
 	static FName GetStyleSetName();
 	static const ISlateStyle& Get();
+	static FName GetOccurrenceIconName(bool bOneOff);
 private:
 	static TSharedPtr<FSlateStyleSet> StyleInstance;
 };

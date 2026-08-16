@@ -13,7 +13,7 @@ State.
 | Current day and time | `Get Day Night Cycle Date Time` |
 | Current day only | `Get Day Night Cycle Current Day` |
 | Time of day only | `Get Day Night Cycle Time Of Day` |
-| A 0–1 value for the current day | `Get Day Night Cycle Day Progress` |
+| A value from 0 to 1 for the current day | `Get Day Night Cycle Day Progress` |
 | Pause or resume | `Set Day Night Cycle Paused` |
 | Change clock speed | `Set Day Night Cycle Time Scale` |
 | Jump to a date and time | `Set Day Night Cycle Date Time` |

@@ -32,8 +32,8 @@ void FDiurnalCycleEditorStyle::Initialize()
 	StyleInstance->Set(TEXT("DiurnalCycle.Policy.Advance"), new FSlateVectorImageBrush(AdvancePath, FVector2D(16, 16)));
 	StyleInstance->Set(TEXT("DiurnalCycle.Policy.Freeze"), new FSlateVectorImageBrush(FreezePath, FVector2D(16, 16)));
 	StyleInstance->Set(TEXT("DiurnalCycle.Policy.Default"), new FSlateVectorImageBrush(DefaultPath, FVector2D(16, 16)));
-	StyleInstance->Set(TEXT("DiurnalCycle.Entry.Repeating"), new FSlateVectorImageBrush(RepeatingPath, FVector2D(16, 16)));
-	StyleInstance->Set(TEXT("DiurnalCycle.Entry.Once"), new FSlateVectorImageBrush(OncePath, FVector2D(16, 16)));
+	StyleInstance->Set(TEXT("DiurnalCycle.Entry.Event.Repeating"), new FSlateVectorImageBrush(RepeatingPath, FVector2D(16, 16)));
+	StyleInstance->Set(TEXT("DiurnalCycle.Entry.Event.Once"), new FSlateVectorImageBrush(OncePath, FVector2D(16, 16)));
 	StyleInstance->Set(TEXT("DiurnalCycle.Entry.Range"), new FSlateVectorImageBrush(RangePath, FVector2D(16, 16)));
 	StyleInstance->Set(TEXT("DiurnalCycle.Entry.Notify"), new FSlateVectorImageBrush(NotifyPath, FVector2D(16, 16)));
 	StyleInstance->Set(TEXT("DiurnalCycle.Entry.Blocking"), new FSlateVectorImageBrush(BlockingPath, FVector2D(16, 16)));
@@ -61,4 +61,11 @@ const ISlateStyle& FDiurnalCycleEditorStyle::Get()
 {
 	check(StyleInstance.IsValid());
 	return *StyleInstance;
+}
+
+FName FDiurnalCycleEditorStyle::GetOccurrenceIconName(const bool bOneOff)
+{
+	return bOneOff
+		? FName(TEXT("DiurnalCycle.Entry.Event.Once"))
+		: FName(TEXT("DiurnalCycle.Entry.Event.Repeating"));
 }

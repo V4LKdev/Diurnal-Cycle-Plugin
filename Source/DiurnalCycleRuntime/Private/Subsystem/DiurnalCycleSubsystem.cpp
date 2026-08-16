@@ -156,7 +156,7 @@ bool UDiurnalCycleSubsystem::TrySetTimeScale(
 		TimeScale,
 		TimeScale == 0.0
 			? TEXT(
-				"; automatic advancement is stopped")
+				", automatic advancement is stopped")
 			: TEXT(""));
 
 	return true;
@@ -291,7 +291,7 @@ bool UDiurnalCycleSubsystem::TryAdvanceHours(
 		if (!bMaximumDateWarningEmitted)
 		{
 			UE_LOG(LogDiurnalCycle, Warning,
-				TEXT("Clock advancement stopped at %s: adding %g game hours would exceed the maximum representable date; the clock is now paused."),
+				TEXT("Clock advancement stopped at %s because adding %g game hours would exceed the maximum representable date. The clock is now paused."),
 				*GetDateTime().ToString(), GameHours);
 			bMaximumDateWarningEmitted = true;
 		}
@@ -376,7 +376,7 @@ void UDiurnalCycleSubsystem::Tick(
 		if (!bMaximumDateWarningEmitted)
 		{
 			UE_LOG(LogDiurnalCycle, Warning,
-				TEXT("Clock advancement stopped at %s: adding %g game hours would exceed the maximum representable date; the clock is now paused."),
+				TEXT("Clock advancement stopped at %s because adding %g game hours would exceed the maximum representable date. The clock is now paused."),
 				*GetDateTime().ToString(), GameHours);
 			bMaximumDateWarningEmitted = true;
 		}

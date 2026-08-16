@@ -21,7 +21,7 @@ public:
 	FGuid AddRepeatingEvent();
 	FGuid AddRange();
 	FGuid AddOnceEventAt(int32 Day, const FDiurnalTimeOfDay& TimeOfDay);
-	/** Creates a range at a time. AnchorDay > 0 creates a one-off range; zero creates a repeating range. */
+	/** Creates a range at a time. AnchorDay > 0 creates a one-off range. Zero creates a repeating range. */
 	FGuid AddRangeAt(const FDiurnalTimeOfDay& StartTime, int32 DurationMinutes = 60, int32 AnchorDay = 0);
 	bool DuplicateSelected();
 	bool DeleteSelected();

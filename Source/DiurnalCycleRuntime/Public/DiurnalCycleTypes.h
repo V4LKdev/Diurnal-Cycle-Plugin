@@ -94,7 +94,7 @@ struct DIURNALCYCLERUNTIME_API FDiurnalScheduleEntryReference
 	bool IsValid() const
 	{
 		// EntryId is the required exact identity. A null Schedule is intentional
-		// for runtime-owned entries; Schedule presence alone never makes this valid.
+		// for runtime-owned entries. Schedule presence alone never makes this valid.
 		return EntryId.IsValid();
 	}
 
@@ -503,7 +503,7 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeRange
 		return !RangeTags.IsEmpty() ? RangeTags.First() : FGameplayTag();
 	}
 
-	/** Exact tag membership; intentionally does not perform hierarchical matching. */
+	/** Exact tag membership. This intentionally does not perform hierarchical matching. */
 	bool HasTagExact(const FGameplayTag Tag) const
 	{
 		return Tag.IsValid() && RangeTags.HasTagExact(Tag);
@@ -872,7 +872,7 @@ enum class EDiurnalTimeEventBehavior : uint8
  *
  * Repeating events occur at their configured interval. Once events occur only
  * on their anchor day. Ordinary event occurrences are emitted only during forward
- * advancement; teleporting or restoring state does not replay them.
+ * advancement. Teleporting or restoring state does not replay them.
  *
  * BlockTime events additionally act as time gates. Multiple gates may become
  * active at the same timestamp and remain active until explicitly released.
@@ -972,7 +972,7 @@ struct DIURNALCYCLERUNTIME_API FDiurnalTimeEvent
 		return !EventTags.IsEmpty() ? EventTags.First() : FGameplayTag();
 	}
 
-	/** Exact tag membership; intentionally does not perform hierarchical matching. */
+	/** Exact tag membership. This intentionally does not perform hierarchical matching. */
 	bool HasTagExact(const FGameplayTag Tag) const
 	{
 		return Tag.IsValid() && EventTags.HasTagExact(Tag);

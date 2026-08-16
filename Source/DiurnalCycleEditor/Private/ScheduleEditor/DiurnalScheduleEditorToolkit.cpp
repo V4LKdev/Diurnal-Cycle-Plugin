@@ -96,7 +96,7 @@ void FDiurnalScheduleEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 		FOnGetContent::CreateSP(this, &FDiurnalScheduleEditorToolkit::BuildAddMenu),
 		LOCTEXT("Add", "Add"),
 		LOCTEXT("AddTooltip", "Add an instantaneous Event or a duration-based Time Range."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Event")));
+		FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), TEXT("DiurnalCycle.Toolbar.Schedule")));
 	ToolbarBuilder.AddToolBarButton(
 		FDiurnalScheduleEditorCommands::Get().Validate,
 		NAME_None,
@@ -113,12 +113,12 @@ TSharedRef<SWidget> FDiurnalScheduleEditorToolkit::BuildAddMenu()
 	Menu.AddMenuEntry(
 		LOCTEXT("AddEvent", "Event"),
 		LOCTEXT("AddEventTooltip", "Add an instantaneous event. Choose Repeating or One-off recurrence in the inspector."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Event")),
+		FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FDiurnalCycleEditorStyle::GetOccurrenceIconName(false)),
 		FUIAction(FExecuteAction::CreateSP(this, &FDiurnalScheduleEditorToolkit::AddEvent)));
 	Menu.AddMenuEntry(
 		LOCTEXT("AddTimeRange", "Time Range"),
 		LOCTEXT("AddTimeRangeTooltip", "Add a recurring duration with start and end times."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Details")),
+		FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FName("DiurnalCycle.Entry.Range")),
 		FUIAction(FExecuteAction::CreateSP(this, &FDiurnalScheduleEditorToolkit::AddRange)));
 	Menu.EndSection();
 	return Menu.MakeWidget();

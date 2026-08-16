@@ -77,6 +77,7 @@ namespace
 		Result.EndSecond = EndSecond;
 		Result.bContinuesFromPreviousDay = bFromPrevious;
 		Result.bContinuesIntoNextDay = bIntoNext;
+		Result.bIsRepeatingOccurrence = Range.Recurrence.Mode == EDiurnalRecurrenceMode::Repeating;
 		Result.EditorColor = DiurnalScheduleEditor::GetEditorColor(Range);
 		return Result;
 	}

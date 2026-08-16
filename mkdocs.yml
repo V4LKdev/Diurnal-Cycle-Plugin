@@ -20,6 +20,7 @@ nav:
       - Schedule Editor: editor/schedule-editor.md
       - Schedule Browser: editor/schedule-browser.md
   - Blueprint guide: blueprints.md
+  - Roadmap: roadmap.md
 
 plugins:
   - search

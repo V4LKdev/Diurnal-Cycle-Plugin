@@ -1,7 +1,7 @@
 ﻿{
 	"FileVersion": 3,
-	"Version": 4,
-	"VersionName": "0.4.1",
+	"Version": 5,
+	"VersionName": "0.4.2",
 	"FriendlyName": "Day/Night Cycle",
 	"Description": "A lightweight, designer-friendly day-night cycle with exact time, scheduled events and ranges, gates, persistence, and Gameplay Debugger support.",
 	"Category": "Gameplay",

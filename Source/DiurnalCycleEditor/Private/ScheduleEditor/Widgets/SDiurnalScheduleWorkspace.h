@@ -40,9 +40,10 @@ public:
 private:
 	enum class EFilterOption : uint8
 	{
-		Repeating,
-		Once,
-		Range,
+		RepeatingEvent,
+		OnceEvent,
+		RepeatingRange,
+		OnceRange,
 		Notify,
 		Blocking
 	};

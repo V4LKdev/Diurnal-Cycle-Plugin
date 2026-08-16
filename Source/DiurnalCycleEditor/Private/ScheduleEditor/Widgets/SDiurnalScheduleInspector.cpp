@@ -1,6 +1,7 @@
 #include "ScheduleEditor/Widgets/SDiurnalScheduleInspector.h"
 
 #include "DiurnalCycleSettings.h"
+#include "DiurnalCycleEditorStyle.h"
 #include "DiurnalSchedule.h"
 #include "ScheduleEditor/DiurnalScheduleEditorPresentation.h"
 #include "IDetailTreeNode.h"
@@ -18,6 +19,7 @@
 #include "Styling/StyleColors.h"
 #include "Widgets/Colors/SColorBlock.h"
 #include "Widgets/Colors/SColorPicker.h"
+#include "Widgets/Images/SImage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SComboButton.h"
 #include "Widgets/Layout/SBorder.h"
@@ -39,6 +41,15 @@ namespace
 			if (TSharedPtr<IPropertyHandle> Found = FindProperty(Children, Name)) return Found;
 		}
 		return nullptr;
+	}
+
+	TSharedRef<SWidget> EntryButtonContent(const bool bRange, const bool bOneOff, const FText& Label)
+	{
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 5, 0)
+			[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush(bRange ? FName("DiurnalCycle.Entry.Range") : FDiurnalCycleEditorStyle::GetOccurrenceIconName(bOneOff)))]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[SNew(STextBlock).Text(Label)];
 	}
 }
 
@@ -90,8 +101,10 @@ void SDiurnalScheduleInspector::Refresh()
 				Rows->AddSlot().AutoHeight()
 				[
 					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)[SNew(SButton).Text(LOCTEXT("AddDayEvent", "Add Event")).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddOnceEventAt(SelectedDay, FDiurnalTimeOfDay(12)); return FReply::Handled(); })]
-					+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("AddDayRange", "Add Time Range")).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddRangeAt(FDiurnalTimeOfDay(12), 60, SelectedDay); return FReply::Handled(); })]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)
+					[SNew(SButton).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddOnceEventAt(SelectedDay, FDiurnalTimeOfDay(12)); return FReply::Handled(); })[EntryButtonContent(false, true, LOCTEXT("AddDayEvent", "Add Event"))]]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[SNew(SButton).OnClicked_Lambda([Model = Model, SelectedDay] { Model->AddRangeAt(FDiurnalTimeOfDay(12), 60, SelectedDay); return FReply::Handled(); })[EntryButtonContent(true, true, LOCTEXT("AddDayRange", "Add Time Range"))]]
 				];
 			}
 			return;
@@ -116,8 +129,10 @@ void SDiurnalScheduleInspector::Refresh()
 			Rows->AddSlot().AutoHeight()
 			[
 				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)[SNew(SButton).Text(LOCTEXT("AddEvent", "Add Event")).OnClicked_Lambda([Model = Model] { Model->AddRepeatingEvent(); return FReply::Handled(); })]
-				+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("AddRange", "Add Time Range")).OnClicked_Lambda([Model = Model] { Model->AddRange(); return FReply::Handled(); })]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)
+				[SNew(SButton).OnClicked_Lambda([Model = Model] { Model->AddRepeatingEvent(); return FReply::Handled(); })[EntryButtonContent(false, false, LOCTEXT("AddEvent", "Add Event"))]]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[SNew(SButton).OnClicked_Lambda([Model = Model] { Model->AddRange(); return FReply::Handled(); })[EntryButtonContent(true, false, LOCTEXT("AddRange", "Add Time Range"))]]
 			];
 		}
 		return;
@@ -261,11 +276,11 @@ void SDiurnalScheduleInspector::AddTimePropertyNode(const TSharedRef<IDetailTree
 		+ SHorizontalBox::Slot().FillWidth(.58f).VAlign(VAlign_Center)
 		[
 			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().AutoWidth()[Component(Hour, LOCTEXT("HourTooltip", "Hour (00–23)"))]
+			+ SHorizontalBox::Slot().AutoWidth()[Component(Hour, LOCTEXT("HourTooltip", "Hour (00 to 23)"))]
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(2, 0)[SNew(STextBlock).Text(FText::FromString(TEXT(":")))]
-			+ SHorizontalBox::Slot().AutoWidth()[Component(Minute, LOCTEXT("MinuteTooltip", "Minute (00–59)"))]
+			+ SHorizontalBox::Slot().AutoWidth()[Component(Minute, LOCTEXT("MinuteTooltip", "Minute (00 to 59)"))]
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(2, 0)[SNew(STextBlock).Text(FText::FromString(TEXT(":")))]
-			+ SHorizontalBox::Slot().AutoWidth()[Component(Second, LOCTEXT("SecondTooltip", "Second (00–59)"))]
+			+ SHorizontalBox::Slot().AutoWidth()[Component(Second, LOCTEXT("SecondTooltip", "Second (00 to 59)"))]
 		]
 	];
 }

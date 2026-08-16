@@ -70,6 +70,7 @@ struct DIURNALCYCLEEDITOR_API FProjectedDiurnalRangeSegment
 	int32 EndSecond = static_cast<int32>(DiurnalCycle::GSecondsPerDay);
 	bool bContinuesFromPreviousDay = false;
 	bool bContinuesIntoNextDay = false;
+	bool bIsRepeatingOccurrence = false;
 	FLinearColor EditorColor = FLinearColor::White;
 	int32 OverlapLane = 0;
 	int32 OverlapLaneCount = 1;

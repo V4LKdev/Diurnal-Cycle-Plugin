@@ -103,7 +103,7 @@ void SDiurnalScheduleWorkspace::Construct(const FArguments& Args)
 	};
 	const TSharedRef<SWidget> WorkingStartControl = MakeDayBound(
 		LOCTEXT("WorkingStart", "Working Start"),
-		LOCTEXT("WorkingStartTip", "First editor navigation day; does not affect the schedule."),
+		LOCTEXT("WorkingStartTip", "First editor navigation day. This does not affect the schedule."),
 		TAttribute<int32>::CreateLambda([this] { return WeekView->GetWorkingFirstDay(); }),
 		[this, RangeController](const int32 Day)
 		{
@@ -135,7 +135,7 @@ void SDiurnalScheduleWorkspace::Construct(const FArguments& Args)
 		});
 	const TSharedRef<SWidget> WorkingEndControl = MakeDayBound(
 		LOCTEXT("WorkingEnd", "Working End"),
-		LOCTEXT("WorkingEndTip", "Last editor navigation day; does not affect the schedule."),
+		LOCTEXT("WorkingEndTip", "Last editor navigation day. This does not affect the schedule."),
 		TAttribute<int32>::CreateLambda([this]
 		{
 			return WeekView->GetWorkingFirstDay() + WeekView->GetWorkingDayCount() - 1;
@@ -359,12 +359,12 @@ TSharedRef<SWidget> SDiurnalScheduleWorkspace::BuildSortMenu()
 TSharedRef<SWidget> SDiurnalScheduleWorkspace::BuildFilterMenu()
 {
 	FMenuBuilder Menu(true, nullptr);
-	const auto AddFilter = [this, &Menu](const FText& Label, const EFilterOption Option)
+	const auto AddFilter = [this, &Menu](const FText& Label, const EFilterOption Option, const FName IconName)
 	{
 		Menu.AddMenuEntry(
 			Label,
 			FText::GetEmpty(),
-			FSlateIcon(),
+			FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), IconName),
 			FUIAction(
 				FExecuteAction::CreateSP(this, &SDiurnalScheduleWorkspace::ToggleFilter, Option),
 				FCanExecuteAction(),
@@ -373,13 +373,14 @@ TSharedRef<SWidget> SDiurnalScheduleWorkspace::BuildFilterMenu()
 			EUserInterfaceActionType::ToggleButton);
 	};
 	Menu.BeginSection("Types", LOCTEXT("Types", "Type"));
-	AddFilter(LOCTEXT("Repeating", "Repeating Event"), EFilterOption::Repeating);
-	AddFilter(LOCTEXT("Once", "One-off Event"), EFilterOption::Once);
-	AddFilter(LOCTEXT("Range", "Time Range"), EFilterOption::Range);
+	AddFilter(LOCTEXT("RepeatingEvent", "Repeating Event"), EFilterOption::RepeatingEvent, FDiurnalCycleEditorStyle::GetOccurrenceIconName(false));
+	AddFilter(LOCTEXT("OnceEvent", "One-off Event"), EFilterOption::OnceEvent, FDiurnalCycleEditorStyle::GetOccurrenceIconName(true));
+	AddFilter(LOCTEXT("RepeatingRange", "Repeating Time Range"), EFilterOption::RepeatingRange, FDiurnalCycleEditorStyle::GetOccurrenceIconName(false));
+	AddFilter(LOCTEXT("OnceRange", "One-off Time Range"), EFilterOption::OnceRange, FDiurnalCycleEditorStyle::GetOccurrenceIconName(true));
 	Menu.EndSection();
 	Menu.BeginSection("Behavior", LOCTEXT("Behavior", "Behavior"));
-	AddFilter(LOCTEXT("Notify", "Notify"), EFilterOption::Notify);
-	AddFilter(LOCTEXT("Blocking", "Blocking"), EFilterOption::Blocking);
+	AddFilter(LOCTEXT("Notify", "Notify"), EFilterOption::Notify, FName(TEXT("DiurnalCycle.Entry.Notify")));
+	AddFilter(LOCTEXT("Blocking", "Blocking"), EFilterOption::Blocking, FName(TEXT("DiurnalCycle.Entry.Blocking")));
 	Menu.EndSection();
 	Menu.AddMenuSeparator();
 	Menu.AddMenuEntry(
@@ -411,9 +412,10 @@ void SDiurnalScheduleWorkspace::ToggleFilter(const EFilterOption Option)
 	FDiurnalScheduleEditorFilter Filter = Model->GetFilter();
 	switch (Option)
 	{
-	case EFilterOption::Repeating: Filter.bShowRepeatingEvents = !Filter.bShowRepeatingEvents; break;
-	case EFilterOption::Once: Filter.bShowOnceEvents = !Filter.bShowOnceEvents; break;
-	case EFilterOption::Range: Filter.bShowTimeRanges = !Filter.bShowTimeRanges; break;
+	case EFilterOption::RepeatingEvent: Filter.bShowRepeatingEvents = !Filter.bShowRepeatingEvents; break;
+	case EFilterOption::OnceEvent: Filter.bShowOnceEvents = !Filter.bShowOnceEvents; break;
+	case EFilterOption::RepeatingRange: Filter.bShowRepeatingRanges = !Filter.bShowRepeatingRanges; break;
+	case EFilterOption::OnceRange: Filter.bShowOnceRanges = !Filter.bShowOnceRanges; break;
 	case EFilterOption::Notify: Filter.bShowNotify = !Filter.bShowNotify; break;
 	case EFilterOption::Blocking: Filter.bShowBlocking = !Filter.bShowBlocking; break;
 	}
@@ -425,9 +427,10 @@ bool SDiurnalScheduleWorkspace::IsFilterEnabled(const EFilterOption Option) cons
 	const FDiurnalScheduleEditorFilter& Filter = Model->GetFilter();
 	switch (Option)
 	{
-	case EFilterOption::Repeating: return Filter.bShowRepeatingEvents;
-	case EFilterOption::Once: return Filter.bShowOnceEvents;
-	case EFilterOption::Range: return Filter.bShowTimeRanges;
+	case EFilterOption::RepeatingEvent: return Filter.bShowRepeatingEvents;
+	case EFilterOption::OnceEvent: return Filter.bShowOnceEvents;
+	case EFilterOption::RepeatingRange: return Filter.bShowRepeatingRanges;
+	case EFilterOption::OnceRange: return Filter.bShowOnceRanges;
 	case EFilterOption::Notify: return Filter.bShowNotify;
 	case EFilterOption::Blocking: return Filter.bShowBlocking;
 	default: return true;

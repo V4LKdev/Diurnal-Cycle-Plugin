@@ -31,9 +31,9 @@ Select an entry to edit it in the inspector.
 
 | Desired result | Setup |
 | --- | --- |
-| Every day | Repeating · Anchor Day 1 · Interval 1 |
-| Every 7 days starting on Day 4 | Repeating · Anchor Day 4 · Interval 7 |
-| Only on Day 19 | Once · Anchor Day 19 |
+| Every day | Repeating, Anchor Day 1, Interval 1 |
+| Every 7 days starting on Day 4 | Repeating, Anchor Day 4, Interval 7 |
+| Only on Day 19 | Once, Anchor Day 19 |
 
 An overnight range is allowed. A range from 22:00 to 06:00 starts on the
 scheduled day and ends the following morning.
@@ -45,14 +45,19 @@ and manual ordering.
 
 **Timeline** is best for seeing when entries overlap. Use the bottom range
 control to pan or zoom between full days. The 1, 7, and 14 Day buttons are quick
-presets; wider views are also supported.
+presets. Wider views are also supported.
 
 - **Current** focuses the configured day, or the live day during PIE.
 - **Reset** restores the normal 7-day view, hour height, and scroll position.
 - Shift+wheel and middle-drag pan horizontally.
 - Hour Height changes vertical zoom only.
 
-Timing is edited in the inspector; Timeline entries are not draggable.
+Timing is edited in the inspector. Timeline entries are not draggable.
+
+Events and time ranges use matching recurrence icons throughout the editor.
+Calendar icons identify one-off and repeating occurrences. A second icon
+identifies Notify, Blocking, or Time Range. The Add actions use the icon for
+the entry they create.
 
 ## Finish cleanly
 

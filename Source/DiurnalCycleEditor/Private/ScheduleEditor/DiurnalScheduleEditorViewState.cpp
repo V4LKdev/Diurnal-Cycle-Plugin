@@ -45,14 +45,11 @@ namespace
 
 	int32 ChronologicalDay(const FDiurnalScheduleListItem& Item)
 	{
-		return Item.Type == EDiurnalScheduleSelectionType::Event && Item.bOneOff
-			? Item.AnchorDay
-			: 0;
+		return Item.AnchorDay;
 	}
 
 	int32 DayAndTimeGroup(const FDiurnalScheduleListItem& Item)
 	{
-		if (Item.Type == EDiurnalScheduleSelectionType::Range) return 2;
 		return Item.bOneOff ? 1 : 0;
 	}
 
@@ -70,11 +67,13 @@ namespace
 			break;
 		case EDiurnalScheduleSortMode::Type:
 			Result = CompareInt(static_cast<int32>(Left.Type), static_cast<int32>(Right.Type));
+			if (Result == 0) Result = CompareInt(static_cast<int32>(Left.bOneOff), static_cast<int32>(Right.bOneOff));
 			if (Result == 0) Result = CompareInt(ChronologicalDay(Left), ChronologicalDay(Right));
 			if (Result == 0) Result = CompareInt(Left.StartTime.ToSecondsIntoDay(), Right.StartTime.ToSecondsIntoDay());
 			break;
 		case EDiurnalScheduleSortMode::DayAndTime:
 			Result = CompareInt(DayAndTimeGroup(Left), DayAndTimeGroup(Right));
+			if (Result == 0) Result = CompareInt(static_cast<int32>(Left.Type), static_cast<int32>(Right.Type));
 			if (Result == 0) Result = CompareInt(ChronologicalDay(Left), ChronologicalDay(Right));
 			if (Result == 0) Result = CompareInt(Left.StartTime.ToSecondsIntoDay(), Right.StartTime.ToSecondsIntoDay());
 			break;
@@ -98,7 +97,8 @@ bool FDiurnalScheduleEditorFilter::IsActive() const
 	return !SearchText.TrimStartAndEnd().IsEmpty()
 		|| !bShowRepeatingEvents
 		|| !bShowOnceEvents
-		|| !bShowTimeRanges
+		|| !bShowRepeatingRanges
+		|| !bShowOnceRanges
 		|| !bShowNotify
 		|| !bShowBlocking;
 }
@@ -108,7 +108,8 @@ void FDiurnalScheduleEditorFilter::Reset()
 	SearchText.Reset();
 	bShowRepeatingEvents = true;
 	bShowOnceEvents = true;
-	bShowTimeRanges = true;
+	bShowRepeatingRanges = true;
+	bShowOnceRanges = true;
 	bShowNotify = true;
 	bShowBlocking = true;
 }
@@ -134,8 +135,8 @@ bool FDiurnalScheduleEditorFilter::MatchesRange(
 	const FDiurnalTimeRange& Range,
 	const FString& SourceName) const
 {
-	if (!bShowTimeRanges) return false;
 	const FDiurnalRecurrence Recurrence = Range.Recurrence;
+	if (Recurrence.Mode == EDiurnalRecurrenceMode::Once ? !bShowOnceRanges : !bShowRepeatingRanges) return false;
 	const FString Searchable = FString::Printf(
 		TEXT("%s time range %s active range active state %s %s"),
 		*Range.GetDisplayName().ToString(),

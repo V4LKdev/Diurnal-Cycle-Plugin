@@ -85,6 +85,15 @@ namespace
 			SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush(Brush)).ColorAndOpacity(FSlateColor::UseSubduedForeground())
 		];
 	}
+
+	TSharedRef<SWidget> DiurnalButtonContent(const FName Brush, const FText& Label)
+	{
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 5, 0)
+			[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush(Brush))]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[SNew(STextBlock).Text(Label)];
+	}
 }
 
 void SDiurnalScheduleOverview::Construct(const FArguments& Args)
@@ -149,8 +158,10 @@ void SDiurnalScheduleOverview::Construct(const FArguments& Args)
 						[
 							SNew(SHorizontalBox)
 							.Visibility(this, &SDiurnalScheduleOverview::GetNoEntriesActionsVisibility)
-							+ SHorizontalBox::Slot().AutoWidth().Padding(2)[SNew(SButton).Text(LOCTEXT("EmptyAddEvent", "Add Event")).OnClicked(this, &SDiurnalScheduleOverview::AddEventFromEmpty)]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(2)[SNew(SButton).Text(LOCTEXT("EmptyAddRange", "Add Time Range")).OnClicked(this, &SDiurnalScheduleOverview::AddRangeFromEmpty)]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(2)
+							[SNew(SButton).OnClicked(this, &SDiurnalScheduleOverview::AddEventFromEmpty)[DiurnalButtonContent(FDiurnalCycleEditorStyle::GetOccurrenceIconName(false), LOCTEXT("EmptyAddEvent", "Add Event"))]]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(2)
+							[SNew(SButton).OnClicked(this, &SDiurnalScheduleOverview::AddRangeFromEmpty)[DiurnalButtonContent(FName("DiurnalCycle.Entry.Range"), LOCTEXT("EmptyAddRange", "Add Time Range"))]]
 						]
 						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
 						[
@@ -212,8 +223,8 @@ TSharedRef<ITableRow> SDiurnalScheduleOverview::GenerateRow(
 				const TCHAR* Behavior = Event->IsBlocking() ? TEXT("Blocking") : TEXT("Notify");
 				const FDiurnalRecurrence Recurrence = Event->Recurrence;
 				Secondary = Recurrence.Mode == EDiurnalRecurrenceMode::Once
-					? FText::FromString(FString::Printf(TEXT("Once · Day %d · %s · %s"), Recurrence.AnchorDay, *Event->TimeOfDay.ToString(), Behavior))
-					: FText::FromString(FString::Printf(TEXT("Every %d day%s from Day %d · %s · %s"), Recurrence.IntervalDays, Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"), Recurrence.AnchorDay, *Event->TimeOfDay.ToString(), Behavior));
+					? FText::FromString(FString::Printf(TEXT("Once, Day %d, %s, %s"), Recurrence.AnchorDay, *Event->TimeOfDay.ToString(), Behavior))
+					: FText::FromString(FString::Printf(TEXT("Every %d day%s from Day %d, %s, %s"), Recurrence.IntervalDays, Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"), Recurrence.AnchorDay, *Event->TimeOfDay.ToString(), Behavior));
 				bValidEntry = Event->IsValid();
 				TagsWidget = BuildTagChips(Event->EventTags);
 				EntryColor = DiurnalScheduleEditor::GetEditorColor(*Event);
@@ -225,8 +236,8 @@ TSharedRef<ITableRow> SDiurnalScheduleOverview::GenerateRow(
 			Primary = FText::FromName(Range->GetDisplayName());
 			const FDiurnalRecurrence Recurrence = Range->Recurrence;
 			Secondary = Recurrence.Mode == EDiurnalRecurrenceMode::Once
-				? FText::FromString(FString::Printf(TEXT("Once · Day %d · %s–%s"), Recurrence.AnchorDay, *Range->StartTime.ToString(), *Range->EndTime.ToString()))
-				: FText::FromString(FString::Printf(TEXT("Every %d day%s from Day %d · %s–%s"), Recurrence.IntervalDays, Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"), Recurrence.AnchorDay, *Range->StartTime.ToString(), *Range->EndTime.ToString()));
+				? FText::FromString(FString::Printf(TEXT("Once, Day %d, %s to %s"), Recurrence.AnchorDay, *Range->StartTime.ToString(), *Range->EndTime.ToString()))
+				: FText::FromString(FString::Printf(TEXT("Every %d day%s from Day %d, %s to %s"), Recurrence.IntervalDays, Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"), Recurrence.AnchorDay, *Range->StartTime.ToString(), *Range->EndTime.ToString()));
 			bValidEntry = Range->IsValid();
 			TagsWidget = BuildTagChips(Range->RangeTags);
 			EntryColor = DiurnalScheduleEditor::GetEditorColor(*Range);
@@ -267,9 +278,9 @@ TSharedRef<ITableRow> SDiurnalScheduleOverview::GenerateRow(
 					[
 						SNew(SHorizontalBox)
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 3, 0)
-							[SNew(SBox).WidthOverride(16).HeightOverride(16).ToolTipText(Item->Type == EDiurnalScheduleSelectionType::Event ? (Item->bOneOff ? LOCTEXT("OnceIcon", "One-off Event") : LOCTEXT("RepeatIcon", "Repeating Event")) : LOCTEXT("RangeIcon", "Time Range"))[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush(Item->Type == EDiurnalScheduleSelectionType::Range ? "DiurnalCycle.Entry.Range" : Item->bOneOff ? "DiurnalCycle.Entry.Once" : "DiurnalCycle.Entry.Repeating")).ColorAndOpacity(FSlateColor::UseSubduedForeground())]]
+							[DiurnalIcon(FDiurnalCycleEditorStyle::GetOccurrenceIconName(Item->bOneOff), Item->bOneOff ? LOCTEXT("OnceIcon", "One-off occurrence") : LOCTEXT("RepeatingIcon", "Repeating occurrence"))]
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 3, 0)
-						[DiurnalIcon(Item->bBlocking ? FName("DiurnalCycle.Entry.Blocking") : FName("DiurnalCycle.Entry.Notify"), Item->bBlocking ? LOCTEXT("BlockIcon", "Blocking behavior") : LOCTEXT("NotifyIcon", "Notify behavior"), Item->Type == EDiurnalScheduleSelectionType::Event ? EVisibility::Visible : EVisibility::Collapsed)]
+						[DiurnalIcon(Item->Type == EDiurnalScheduleSelectionType::Range ? FName("DiurnalCycle.Entry.Range") : Item->bBlocking ? FName("DiurnalCycle.Entry.Blocking") : FName("DiurnalCycle.Entry.Notify"), Item->Type == EDiurnalScheduleSelectionType::Range ? LOCTEXT("RangeIcon", "Time range") : Item->bBlocking ? LOCTEXT("BlockIcon", "Blocking behavior") : LOCTEXT("NotifyIcon", "Notify behavior"))]
 					]
 					+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
 					[
@@ -394,7 +405,7 @@ FText SDiurnalScheduleOverview::GetSummary() const
 {
 	const UDiurnalSchedule* Asset = Model->GetSchedule();
 	return Asset
-		? FText::Format(LOCTEXT("Summary", "{0} visible  ·  {1} events  ·  {2} time ranges  ·  List view"), Items.Num(), Asset->TimeEvents.Num(), Asset->TimeRanges.Num())
+		? FText::Format(LOCTEXT("Summary", "{0} visible, {1} events, {2} time ranges, List view"), Items.Num(), Asset->TimeEvents.Num(), Asset->TimeRanges.Num())
 		: FText::GetEmpty();
 }
 

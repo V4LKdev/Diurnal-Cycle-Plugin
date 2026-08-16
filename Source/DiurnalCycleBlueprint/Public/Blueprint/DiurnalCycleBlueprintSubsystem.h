@@ -208,7 +208,7 @@ public:
 		Category = "Day Night Cycle|Notifications|Time Gates")
 	FOnDayNightCycleTimeGateActivated OnTimeGateActivated;
 
-	/** Exact blocking occurrence; use this handle for acknowledgement. */
+	/** Exact blocking occurrence. Use this handle for acknowledgement. */
 	UPROPERTY(BlueprintAssignable, Category = "Day Night Cycle|Notifications|Time Gates")
 	FOnDayNightCycleTimeGateOccurrenceActivated OnTimeGateOccurrenceActivated;
 

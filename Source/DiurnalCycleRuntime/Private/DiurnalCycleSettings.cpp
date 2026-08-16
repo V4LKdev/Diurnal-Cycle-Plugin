@@ -120,7 +120,7 @@ EDataValidationResult UDiurnalCycleSettings::IsDataValid(
 		if (DiurnalCycle::FindDuplicateScheduleReference(DefaultSchedules, FirstDuplicateIndex, DuplicateIndex, DuplicatePath))
 		{
 			AddError(FText::Format(
-				LOCTEXT("DuplicateDefaultSchedule", "Default Schedules[{0}] duplicates Default Schedules[{1}] ('{2}'). Remove one reference; schedule composition is atomic and will not apply duplicate layers."),
+				LOCTEXT("DuplicateDefaultSchedule", "Default Schedules[{0}] duplicates Default Schedules[{1}] ('{2}'). Remove one reference. Schedule composition is atomic and will not apply duplicate layers."),
 				FText::AsNumber(DuplicateIndex), FText::AsNumber(FirstDuplicateIndex), FText::FromString(DuplicatePath.ToString())));
 		}
 		for (int32 Index = 0; Index < DefaultSchedules.Num(); ++Index)

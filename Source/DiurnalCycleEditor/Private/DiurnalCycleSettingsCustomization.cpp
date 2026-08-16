@@ -1,6 +1,7 @@
 #include "DiurnalCycleSettingsCustomization.h"
 
 #include "DiurnalCycleEditor.h"
+#include "DiurnalCycleEditorStyle.h"
 #include "DiurnalCycleSettings.h"
 #include "DiurnalSchedule.h"
 #include "DetailCategoryBuilder.h"
@@ -11,6 +12,7 @@
 #include "PropertyHandle.h"
 #include "ScopedTransaction.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Styling/AppStyle.h"
@@ -58,7 +60,18 @@ void FDiurnalCycleSettingsCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	Category.AddCustomRow(LOCTEXT("ScheduleActions", "Schedule Actions")).WholeRowContent()
 	[
 		SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("OpenBrowser", "Open Schedule Browser")).OnClicked(this, &FDiurnalCycleSettingsCustomization::OpenBrowser)]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[
+			SNew(SButton)
+			.OnClicked(this, &FDiurnalCycleSettingsCustomization::OpenBrowser)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 5, 0)
+				[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush(TEXT("DiurnalCycle.Toolbar.Schedule")))]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[SNew(STextBlock).Text(LOCTEXT("OpenBrowser", "Open Schedule Browser"))]
+			]
+		]
 	];
 
 	Category.AddCustomRow(LOCTEXT("ScheduleHelp", "Schedule ownership")).WholeRowContent()
@@ -89,7 +102,7 @@ FText FDiurnalCycleSettingsCustomization::GetDuplicateWarningText() const
 	FSoftObjectPath Path;
 	if (!DiurnalCycle::FindDuplicateScheduleReference(GetDefault<UDiurnalCycleSettings>()->DefaultSchedules, FirstIndex, DuplicateIndex, Path)) return FText::GetEmpty();
 	return FText::Format(
-		LOCTEXT("DuplicateMessage", "{0} is assigned at indices {1} and {2}. The runtime schedule set will not be applied; the previous valid active set is preserved."),
+		LOCTEXT("DuplicateMessage", "{0} is assigned at indices {1} and {2}. The runtime schedule set will not be applied. The previous valid active set is preserved."),
 		FText::FromString(Path.GetAssetName()), FText::AsNumber(FirstIndex), FText::AsNumber(DuplicateIndex));
 }
 

@@ -31,7 +31,7 @@ public:
 	void Construct(const FArguments& Args);
 	virtual ~SDiurnalScheduleBrowser() override;
 
-	static FText GetEventTypeLabel(bool bOneOff);
+	static FText GetEntryTypeLabel(bool bRange, bool bOneOff);
 	static FText GetEmptyTagsLabel();
 	static constexpr int32 MaximumVisibleTagChips = 2;
 	bool IsConfigurationInvalid() const { return bInvalidConfiguration; }

@@ -26,9 +26,9 @@ the Browser.
 This view lists available schedule assets using Unreal's normal asset picker.
 From here you can:
 
-- create a schedule with the **+** button;
-- open an existing schedule;
-- rename it with **F2**;
+- create a schedule with the schedule button
+- open an existing schedule
+- rename it with **F2**
 - duplicate or delete it with the normal asset actions.
 
 Double-clicking an entry in Combined Schedule opens its owning asset and selects

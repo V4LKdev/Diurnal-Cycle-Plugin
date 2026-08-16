@@ -26,7 +26,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
  * Waits for the aggregate enter or exit transition of a semantic range tag.
  *
  * Several ranges may contribute the same tag. Enter fires when the aggregate
- * contribution changes from zero to non-zero; Exit fires when it returns to
+ * contribution changes from zero to non-zero. Exit fires when it returns to
  * zero. The action waits for a transition, not merely a state. Starting an Enter
  * wait while the range is already active therefore waits for the next future
  * entry after it has exited and re-entered.

@@ -54,7 +54,7 @@ public:
 	/**
 	 * Waits for the next occurrence contributed by any event containing EventTag.
 	 *
-	 * Tag membership is exact; multiple entries may share the tag and the first
+	 * Tag membership is exact. Multiple entries may share the tag and the first
 	 * matching occurrence completes the action.
 	 */
 	UFUNCTION(

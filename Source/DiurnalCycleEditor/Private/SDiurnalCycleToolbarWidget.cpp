@@ -541,11 +541,16 @@ BuildWorldPolicyMenu()
 						IsEditorWorldPolicy,
 					Policy),
 				EUIActionRepeatMode::RepeatDisabled);
+			const FName IconName = Policy == EDiurnalCycleWorldTimePolicy::Advance
+				? FName(TEXT("DiurnalCycle.Policy.Advance"))
+				: Policy == EDiurnalCycleWorldTimePolicy::Freeze
+					? FName(TEXT("DiurnalCycle.Policy.Freeze"))
+					: FName(TEXT("DiurnalCycle.Policy.Default"));
 
 			MenuBuilder.AddMenuEntry(
 				Label,
 				ToolTip,
-				FSlateIcon(),
+				FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), IconName),
 				Action,
 				NAME_None,
 				EUserInterfaceActionType::RadioButton);

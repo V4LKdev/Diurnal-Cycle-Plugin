@@ -165,12 +165,16 @@ namespace
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 5, 0)
 					[
-						SNew(SImage)
-						.Image(FDiurnalCycleEditorStyle::Get().GetBrush(
-							Item->bRange ? "DiurnalCycle.Entry.Range"
-							: Item->bOneOff ? "DiurnalCycle.Entry.Once"
-							: "DiurnalCycle.Entry.Repeating"))
-						.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+						SNew(SBox)
+						.WidthOverride(16)
+						.HeightOverride(16)
+						.ToolTipText(Item->bOneOff ? LOCTEXT("OnceOccurrenceIcon", "One-off occurrence") : LOCTEXT("RepeatingOccurrenceIcon", "Repeating occurrence"))
+						[
+							SNew(SImage)
+							.Image(FDiurnalCycleEditorStyle::Get().GetBrush(
+								FDiurnalCycleEditorStyle::GetOccurrenceIconName(Item->bOneOff)))
+							.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+						]
 					]
 					+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
 					[
@@ -187,7 +191,7 @@ namespace
 			{
 				return SNew(SDiurnalBrowserTagChips).Tags(Item->Tags);
 			}
-			if (ColumnName == TEXT("Behavior") && !Item->bRange)
+			if (ColumnName == TEXT("Behavior"))
 			{
 				return SNew(SBox).Padding(FMargin(4, 0))
 				[
@@ -195,8 +199,9 @@ namespace
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 5, 0)
 					[
 						SNew(SImage)
-						.Image(FDiurnalCycleEditorStyle::Get().GetBrush(
-							Item->bBlocking ? "DiurnalCycle.Entry.Blocking" : "DiurnalCycle.Entry.Notify"))
+						.Image(FDiurnalCycleEditorStyle::Get().GetBrush(Item->bRange
+							? "DiurnalCycle.Entry.Range"
+							: Item->bBlocking ? "DiurnalCycle.Entry.Blocking" : "DiurnalCycle.Entry.Notify"))
 						.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
@@ -209,7 +214,6 @@ namespace
 			FText Text;
 			if (ColumnName == TEXT("Type")) Text = Item->Type;
 			else if (ColumnName == TEXT("Time")) Text = Item->Time;
-			else if (ColumnName == TEXT("Behavior")) Text = Item->Behavior;
 			else if (ColumnName == TEXT("Source")) Text = Item->SourceName;
 			return SNew(SBox).Padding(FMargin(4, 0)).Clipping(EWidgetClipping::ClipToBounds)
 			[
@@ -318,7 +322,13 @@ void SDiurnalScheduleBrowser::Construct(const FArguments&)
 					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
 					.IsChecked(this, &SDiurnalScheduleBrowser::IsModeChecked, EDiurnalScheduleBrowserMode::CombinedSchedule)
 					.OnCheckStateChanged(this, &SDiurnalScheduleBrowser::SetMode, EDiurnalScheduleBrowserMode::CombinedSchedule)
-					[SNew(STextBlock).Text(LOCTEXT("CombinedMode", "Combined Schedule"))]
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 5, 0)
+						[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush("DiurnalCycle.Toolbar.Schedule"))]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+						[SNew(STextBlock).Text(LOCTEXT("CombinedMode", "Combined Schedule"))]
+					]
 				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 				[
@@ -326,7 +336,13 @@ void SDiurnalScheduleBrowser::Construct(const FArguments&)
 					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
 					.IsChecked(this, &SDiurnalScheduleBrowser::IsModeChecked, EDiurnalScheduleBrowserMode::ScheduleAssets)
 					.OnCheckStateChanged(this, &SDiurnalScheduleBrowser::SetMode, EDiurnalScheduleBrowserMode::ScheduleAssets)
-					[SNew(STextBlock).Text(LOCTEXT("AssetsMode", "Schedule Assets"))]
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 5, 0)
+						[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush("DiurnalCycle.ScheduleIcon"))]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+						[SNew(STextBlock).Text(LOCTEXT("AssetsMode", "Schedule Assets"))]
+					]
 				]
 				+ SHorizontalBox::Slot().FillWidth(1)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(2, 0)
@@ -435,14 +451,22 @@ SDiurnalScheduleBrowser::~SDiurnalScheduleBrowser()
 	}
 }
 
-FText SDiurnalScheduleBrowser::GetEventTypeLabel(const bool bOneOff)
+FText SDiurnalScheduleBrowser::GetEntryTypeLabel(const bool bRange, const bool bOneOff)
 {
-	return bOneOff ? LOCTEXT("Once", "One-off Event") : LOCTEXT("Repeating", "Repeating Event");
+	if (bRange)
+	{
+		return bOneOff
+			? LOCTEXT("OnceRangeType", "One-off Time Range")
+			: LOCTEXT("RepeatingRangeType", "Repeating Time Range");
+	}
+	return bOneOff
+		? LOCTEXT("OnceEventType", "One-off Event")
+		: LOCTEXT("RepeatingEventType", "Repeating Event");
 }
 
 FText SDiurnalScheduleBrowser::GetEmptyTagsLabel()
 {
-	return LOCTEXT("NoTags", "—");
+	return LOCTEXT("NoTags", "None");
 }
 
 void SDiurnalScheduleBrowser::SetMode(
@@ -649,11 +673,11 @@ void SDiurnalScheduleBrowser::PopulateSchedule(
 		Item->StartSeconds = Event.TimeOfDay.ToSecondsIntoDay();
 		Item->bOneOff = Recurrence.Mode == EDiurnalRecurrenceMode::Once;
 		Item->bBlocking = Event.IsBlocking();
-		Item->Type = GetEventTypeLabel(Item->bOneOff);
+		Item->Type = GetEntryTypeLabel(false, Item->bOneOff);
 		Item->Time = FText::FromString(Item->bOneOff
-			? FString::Printf(TEXT("Day %d · %s"), Recurrence.AnchorDay, *Event.TimeOfDay.ToString())
-			: FString::Printf(TEXT("Every %d day%s · %s"), Recurrence.IntervalDays,
-				Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"), *Event.TimeOfDay.ToString()));
+			? FString::Printf(TEXT("Day %d, %s"), Recurrence.AnchorDay, *Event.TimeOfDay.ToString())
+			: FString::Printf(TEXT("Every %d day%s from Day %d, %s"), Recurrence.IntervalDays,
+				Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"), Recurrence.AnchorDay, *Event.TimeOfDay.ToString()));
 		Item->Behavior = Event.IsBlocking() ? LOCTEXT("Blocking", "Blocking") : LOCTEXT("Notify", "Notify");
 		Item->SourceName = FText::FromString(Schedule.GetName());
 		AllItems.Add(Item);
@@ -675,13 +699,13 @@ void SDiurnalScheduleBrowser::PopulateSchedule(
 		Item->StartSeconds = Range.StartTime.ToSecondsIntoDay();
 		Item->Day = Recurrence.AnchorDay;
 		Item->bOneOff = Recurrence.Mode == EDiurnalRecurrenceMode::Once;
-		Item->Type = LOCTEXT("Range", "Time Range");
+		Item->Type = GetEntryTypeLabel(true, Item->bOneOff);
 		const FString RecurrenceText = Item->bOneOff
 			? FString::Printf(TEXT("Day %d"), Recurrence.AnchorDay)
-			: FString::Printf(TEXT("Every %d day%s"), Recurrence.IntervalDays,
-				Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"));
+			: FString::Printf(TEXT("Every %d day%s from Day %d"), Recurrence.IntervalDays,
+				Recurrence.IntervalDays == 1 ? TEXT("") : TEXT("s"), Recurrence.AnchorDay);
 		Item->Time = FText::FromString(FString::Printf(
-			TEXT("%s · %s–%s"), *RecurrenceText,
+			TEXT("%s, %s to %s"), *RecurrenceText,
 			*Range.StartTime.ToString(), *Range.EndTime.ToString()));
 		Item->Behavior = LOCTEXT("ActiveState", "Active State");
 		Item->SourceName = FText::FromString(Schedule.GetName());
@@ -736,11 +760,13 @@ void SDiurnalScheduleBrowser::SetSearchText(const FText& Text)
 		}
 		case EDiurnalScheduleSortMode::Type:
 			if (Left->bRange != Right->bRange) return !Left->bRange;
+			if (Left->bOneOff != Right->bOneOff) return !Left->bOneOff;
+			if (Left->Day != Right->Day) return Left->Day < Right->Day;
 			if (Left->StartSeconds != Right->StartSeconds) return Left->StartSeconds < Right->StartSeconds;
 			break;
 		case EDiurnalScheduleSortMode::DayAndTime:
+			if (Left->bOneOff != Right->bOneOff) return !Left->bOneOff;
 			if (Left->bRange != Right->bRange) return !Left->bRange;
-			if (!Left->bRange && Left->bOneOff != Right->bOneOff) return !Left->bOneOff;
 			if (Left->Day != Right->Day) return Left->Day < Right->Day;
 			if (Left->StartSeconds != Right->StartSeconds) return Left->StartSeconds < Right->StartSeconds;
 			break;
@@ -866,12 +892,12 @@ TSharedPtr<SWidget> SDiurnalScheduleBrowser::BuildContextMenu()
 		Menu.AddMenuEntry(
 			LOCTEXT("AddEventMenu", "Add Event"),
 			FText::Format(LOCTEXT("AddEventMenuTip", "Add an event to {0}."), FText::FromString(TargetSchedule->GetName())),
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Plus")),
+			FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FDiurnalCycleEditorStyle::GetOccurrenceIconName(false)),
 			FUIAction(FExecuteAction::CreateSP(this, &SDiurnalScheduleBrowser::AddEntryToSchedule, TargetSchedule, false)));
 		Menu.AddMenuEntry(
 			LOCTEXT("AddRangeMenu", "Add Time Range"),
 			FText::Format(LOCTEXT("AddRangeMenuTip", "Add a time range to {0}."), FText::FromString(TargetSchedule->GetName())),
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Plus")),
+			FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FName("DiurnalCycle.Entry.Range")),
 			FUIAction(FExecuteAction::CreateSP(this, &SDiurnalScheduleBrowser::AddEntryToSchedule, TargetSchedule, true)));
 	}
 	else
@@ -881,13 +907,13 @@ TSharedPtr<SWidget> SDiurnalScheduleBrowser::BuildContextMenu()
 			LOCTEXT("AddEventToMenuTip", "Choose a default schedule for the new event."),
 			FNewMenuDelegate::CreateSP(this, &SDiurnalScheduleBrowser::PopulateAddTargetMenu, false),
 			false,
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Plus")));
+			FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FDiurnalCycleEditorStyle::GetOccurrenceIconName(false)));
 		Menu.AddSubMenu(
 			LOCTEXT("AddRangeToMenu", "Add Time Range To"),
 			LOCTEXT("AddRangeToMenuTip", "Choose a default schedule for the new time range."),
 			FNewMenuDelegate::CreateSP(this, &SDiurnalScheduleBrowser::PopulateAddTargetMenu, true),
 			false,
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Plus")));
+			FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), FName("DiurnalCycle.Entry.Range")));
 	}
 	Menu.EndSection();
 
@@ -925,7 +951,7 @@ void SDiurnalScheduleBrowser::PopulateAddTargetMenu(FMenuBuilder& Menu, const bo
 				FText::Format(
 					bRange ? LOCTEXT("AddRangeTargetTip", "Add a time range to {0}.") : LOCTEXT("AddEventTargetTip", "Add an event to {0}."),
 					FText::FromString(Schedule->GetPathName())),
-				FSlateIcon(),
+				FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), TEXT("DiurnalCycle.ScheduleIcon")),
 				FUIAction(FExecuteAction::CreateSP(this, &SDiurnalScheduleBrowser::AddEntryToSchedule, Schedule, bRange)));
 		}
 	}
@@ -933,7 +959,7 @@ void SDiurnalScheduleBrowser::PopulateAddTargetMenu(FMenuBuilder& Menu, const bo
 	Menu.AddMenuEntry(
 		LOCTEXT("CreateDefaultSchedule", "Create New Default Schedule…"),
 		LOCTEXT("CreateDefaultScheduleTip", "Create a default schedule for the new entry."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Plus")),
+		FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), TEXT("DiurnalCycle.ScheduleIcon")),
 		FUIAction(FExecuteAction::CreateSP(this, &SDiurnalScheduleBrowser::CreateDefaultScheduleWithEntry, bRange)));
 }
 
@@ -1065,7 +1091,7 @@ void SDiurnalScheduleBrowser::ExtendAssetPickerTopBar(const TSharedRef<SHorizont
 			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 			.ToolTipText(LOCTEXT("CreateScheduleAssetTip", "Create a Day/Night Cycle schedule asset."))
 			.OnClicked(this, &SDiurnalScheduleBrowser::CreateScheduleAssetFromPicker)
-			[SNew(SImage).Image(FAppStyle::GetBrush("Icons.Plus"))]
+			[SNew(SImage).Image(FDiurnalCycleEditorStyle::Get().GetBrush("DiurnalCycle.ScheduleIcon"))]
 		];
 }
 
@@ -1077,7 +1103,7 @@ TSharedPtr<SWidget> SDiurnalScheduleBrowser::BuildAssetContextMenu(
 	Menu.AddMenuEntry(
 		LOCTEXT("CreateScheduleAsset", "Create Schedule…"),
 		LOCTEXT("CreateScheduleAssetMenuTip", "Create a Day/Night Cycle schedule asset."),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Plus")),
+		FSlateIcon(FDiurnalCycleEditorStyle::GetStyleSetName(), TEXT("DiurnalCycle.ScheduleIcon")),
 		FUIAction(FExecuteAction::CreateLambda([this] { CreateScheduleAssetFromPicker(); })));
 	Menu.EndSection();
 

@@ -567,14 +567,14 @@ public:
 			))
 		FGameplayTag RangeTag);
 
-	/** Returns unique aggregate semantic tags from active ranges; tagless entries are omitted. */
+	/** Returns unique aggregate semantic tags from active ranges. Tagless entries are omitted. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "Day Night Cycle|Time Ranges",
 		meta = (
 			WorldContext = "WorldContextObject",
 			DisplayName = "Get Active Day Night Cycle Time Range Tags",
-			ToolTip = "Returns unique aggregate semantic tags. Several active entries may contribute the same tag; tagless entries are omitted. Use Get Active Day Night Cycle Time Range Entries when identity matters."
+			ToolTip = "Returns unique aggregate semantic tags. Several active entries may contribute the same tag. Tagless entries are omitted. Use Get Active Day Night Cycle Time Range Entries when identity matters."
 		))
 	static TArray<FGameplayTag>
 	GetActiveDayNightCycleTimeRangeTags(
@@ -648,14 +648,14 @@ public:
 	static bool IsDayNightCycleBlockedByTimeGate(
 		const UObject* WorldContextObject);
 
-	/** Returns unique aggregate semantic tags from active gates; tagless gates are omitted. */
+	/** Returns unique aggregate semantic tags from active gates. Tagless gates are omitted. */
 	UFUNCTION(
 		BlueprintPure,
 		Category = "Day Night Cycle|Time Gates",
 		meta = (
 			WorldContext = "WorldContextObject",
 			DisplayName = "Get Active Day Night Cycle Time Gate Tags",
-			ToolTip = "Returns unique aggregate semantic tags. Several active occurrences may contribute the same tag; tagless gates are omitted. Use Get Active Day Night Cycle Time Gate Occurrences when identity matters."
+			ToolTip = "Returns unique aggregate semantic tags. Several active occurrences may contribute the same tag. Tagless gates are omitted. Use Get Active Day Night Cycle Time Gate Occurrences when identity matters."
 		))
 	static TArray<FGameplayTag> GetActiveDayNightCycleTimeGateTags(
 		const UObject* WorldContextObject);
